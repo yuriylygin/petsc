@@ -1,38 +1,38 @@
       Interface
       subroutine PCSetType(a,b,z)
-      use petscpcdef
+      import tPC
        PC a
        character(*) b
-       integer z
+       PetscErrorCode z
        end subroutine
       end Interface
 
       Interface
       subroutine PCView(a,b,z)
-      use petscpcdef
+      import tPC,tPetscViewer
        PC a
        PetscViewer b
-       integer z
+       PetscErrorCode z
        end subroutine
       end Interface
 
       Interface
       subroutine PCFieldSplitSetIS(a,b,c,z)
-      use petscpcdef
+      import tPC,tIS
        PC a
        character(*)  b
        IS c
-       integer z
+       PetscErrorCode z
        end subroutine
       end Interface
 
       Interface
       subroutine PCFieldSplitGetIS(a,b,c,z)
-      use petscpcdef
+      import tPC,tIS
        PC a
        character(*)  b
        IS c
-       integer z
+       PetscErrorCode z
        end subroutine
       end Interface
 

@@ -1,7 +1,7 @@
 
 /*
     Provides an implementation of the Unevenly Sampled FFT algorithm as a Mat.
-    Testing examples can be found in ~/src/mat/examples/tests FIX: should these be moved to dm/da/examples/tests?
+    Testing examples can be found in ~/src/mat/tests FIX: should these be moved to dm/da/tests?
 */
 
 #include <petsc/private/matimpl.h>          /*I "petscmat.h" I*/
@@ -171,10 +171,10 @@ PetscErrorCode  MatCreateSeqUSFFT(Vec sampleCoords, DMDA freqDA, Mat *A)
 
   PetscFunctionBegin;
   ierr = PetscObjectGetComm((PetscObject)inda, &comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(comm, &size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(comm, &size);CHKERRMPI(ierr);
   if (size > 1) SETERRQ(comm,PETSC_ERR_USER, "Parallel DMDA (in) not yet supported by USFFT");
   ierr = PetscObjectGetComm((PetscObject)outda, &comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(comm, &size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(comm, &size);CHKERRMPI(ierr);
   if (size > 1) SETERRQ(comm,PETSC_ERR_USER, "Parallel DMDA (out) not yet supported by USFFT");
   ierr         = MatCreate(comm,A);CHKERRQ(ierr);
   ierr         = PetscNewLog(*A,&usfft);CHKERRQ(ierr);

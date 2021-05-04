@@ -341,7 +341,7 @@ Arg class, which wraps the usual value.'''
       for arg in args:
         (key, value) = nargs.Arg.parseArgument(arg)
         self.insertArg(key, value, arg)
-    elif hasattr(args, keys):
+    elif hasattr(args, 'keys'):
       for key in args.keys():
         if isinstance(args[key], str):
           value = nargs.Arg.parseValue(args[key])
@@ -544,7 +544,7 @@ Arg class, which wraps the usual value.'''
   def serve(self):
     '''Start a server'''
     import socket
-    import SocketServer
+    import SocketServer # novermin
 
     if not useThreads:
       raise RuntimeError('Cannot run a server if threads are disabled')

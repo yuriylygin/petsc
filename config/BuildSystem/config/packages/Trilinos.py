@@ -129,10 +129,8 @@ class Configure(config.package.CMakePackage):
     args = config.package.CMakePackage.formCMakeConfigureArgs(self)
     args.append('-DUSE_XSDK_DEFAULTS=YES')
     if self.compilerFlags.debugging:
-      args.append('-DCMAKE_BUILD_TYPE=DEBUG')
       args.append('-DTrilinos_ENABLE_DEBUG=YES')
     else:
-      args.append('-DCMAKE_BUILD_TYPE=RELEASE')
       args.append('-DXSDK_ENABLE_DEBUG=NO')
 
     # Roscoe says I should to this
@@ -149,9 +147,6 @@ class Configure(config.package.CMakePackage):
     args.append('-DTpetra_INST_FLOAT=OFF')
     args.append('-DTpetra_INST_COMPLEX_FLOAT=OFF')
     args.append('-DTpetra_INST_COMPLEX_DOUBLE=OFF')
-
-    # Trilinos cmake does not set this variable (as it should) so cmake install does not properly reset the -id and rpath of --prefix installed Trilinos libraries
-    args.append('-DCMAKE_INSTALL_NAME_DIR:STRING="'+os.path.join(self.installDir,self.libdir)+'"')
 
     if self.boost.found:
       args.append('-DTPL_ENABLE_Boost=ON')
@@ -289,7 +284,7 @@ class Configure(config.package.CMakePackage):
     fd.write('listlibs:\n\t-@echo ${Trilinos_LIBRARIES}')
     fd.close()
     try:
-      output1,err1,ret1  = config.package.Package.executeShellCommand('make -f simplemake listlibs', timeout=25, log = self.log)
+      output1,err1,ret1  = config.package.Package.executeShellCommand('make -f simplemake listlibs', timeout=60, log = self.log)
       os.unlink('simplemake')
     except RuntimeError as e:
       raise RuntimeError('Unable to generate list of Trilinos Libraries')

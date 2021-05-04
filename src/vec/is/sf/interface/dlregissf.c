@@ -8,8 +8,6 @@ PetscLogEvent PETSCSF_SetGraph;
 PetscLogEvent PETSCSF_SetUp;
 PetscLogEvent PETSCSF_BcastBegin;
 PetscLogEvent PETSCSF_BcastEnd;
-PetscLogEvent PETSCSF_BcastAndOpBegin;
-PetscLogEvent PETSCSF_BcastAndOpEnd;
 PetscLogEvent PETSCSF_ReduceBegin;
 PetscLogEvent PETSCSF_ReduceEnd;
 PetscLogEvent PETSCSF_FetchAndOpBegin;
@@ -18,6 +16,8 @@ PetscLogEvent PETSCSF_EmbedSF;
 PetscLogEvent PETSCSF_DistSect;
 PetscLogEvent PETSCSF_SectSF;
 PetscLogEvent PETSCSF_RemoteOff;
+PetscLogEvent PETSCSF_Pack;
+PetscLogEvent PETSCSF_Unpack;
 
 /*@C
    PetscSFInitializePackage - Initialize SF package
@@ -46,8 +46,6 @@ PetscErrorCode PetscSFInitializePackage(void)
   ierr = PetscLogEventRegister("SFSetUp"        , PETSCSF_CLASSID, &PETSCSF_SetUp);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFBcastBegin"   , PETSCSF_CLASSID, &PETSCSF_BcastBegin);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFBcastEnd"     , PETSCSF_CLASSID, &PETSCSF_BcastEnd);CHKERRQ(ierr);
-  ierr = PetscLogEventRegister("SFBcastOpBegin" , PETSCSF_CLASSID, &PETSCSF_BcastAndOpBegin);CHKERRQ(ierr);
-  ierr = PetscLogEventRegister("SFBcastOpEnd"   , PETSCSF_CLASSID, &PETSCSF_BcastAndOpEnd);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFReduceBegin"  , PETSCSF_CLASSID, &PETSCSF_ReduceBegin);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFReduceEnd"    , PETSCSF_CLASSID, &PETSCSF_ReduceEnd);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFFetchOpBegin" , PETSCSF_CLASSID, &PETSCSF_FetchAndOpBegin);CHKERRQ(ierr);
@@ -56,11 +54,14 @@ PetscErrorCode PetscSFInitializePackage(void)
   ierr = PetscLogEventRegister("SFDistSection"  , PETSCSF_CLASSID, &PETSCSF_DistSect);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFSectionSF"    , PETSCSF_CLASSID, &PETSCSF_SectSF);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("SFRemoteOff"    , PETSCSF_CLASSID, &PETSCSF_RemoteOff);CHKERRQ(ierr);
-  /* Process info exclusions */
-  ierr = PetscOptionsGetString(NULL,NULL,"-info_exclude",logList,sizeof(logList),&opt);CHKERRQ(ierr);
-  if (opt) {
-    ierr = PetscStrInList("sf",logList,',',&pkg);CHKERRQ(ierr);
-    if (pkg) {ierr = PetscInfoDeactivateClass(PETSCSF_CLASSID);CHKERRQ(ierr);}
+  ierr = PetscLogEventRegister("SFPack"         , PETSCSF_CLASSID, &PETSCSF_Pack);CHKERRQ(ierr);
+  ierr = PetscLogEventRegister("SFUnpack"       , PETSCSF_CLASSID, &PETSCSF_Unpack);CHKERRQ(ierr);
+  /* Process Info */
+  {
+    PetscClassId  classids[1];
+
+    classids[0] = PETSCSF_CLASSID;
+    ierr = PetscInfoProcessClass("sf", 1, classids);CHKERRQ(ierr);
   }
   /* Process summary exclusions */
   ierr = PetscOptionsGetString(NULL,NULL,"-log_exclude",logList,sizeof(logList),&opt);CHKERRQ(ierr);

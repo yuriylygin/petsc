@@ -12,29 +12,32 @@
 #define petscfeviewfromoptions_   petscfeviewfromoptions
 #endif
 
-PETSC_EXTERN void PETSC_STDCALL petscspaceviewfromoptions_(PetscSpace *ao,PetscObject obj,char* type PETSC_MIXED_LEN(len),PetscErrorCode *ierr PETSC_END_LEN(len))
+PETSC_EXTERN void petscspaceviewfromoptions_(PetscSpace *ao,PetscObject obj,char* type,PetscErrorCode *ierr,PETSC_FORTRAN_CHARLEN_T len)
 {
   char *t;
 
   FIXCHAR(type,len,t);
+  CHKFORTRANNULLOBJECT(obj);
   *ierr = PetscSpaceViewFromOptions(*ao,obj,t);if (*ierr) return;
   FREECHAR(type,t);
 }
 
-PETSC_EXTERN void PETSC_STDCALL petscdualspaceviewfromoptions_(PetscDualSpace *ao,PetscObject obj,char* type PETSC_MIXED_LEN(len),PetscErrorCode *ierr PETSC_END_LEN(len))
+PETSC_EXTERN void petscdualspaceviewfromoptions_(PetscDualSpace *ao,PetscObject obj,char* type,PetscErrorCode *ierr,PETSC_FORTRAN_CHARLEN_T len)
 {
   char *t;
 
   FIXCHAR(type,len,t);
+  CHKFORTRANNULLOBJECT(obj);
   *ierr = PetscDualSpaceViewFromOptions(*ao,obj,t);if (*ierr) return;
   FREECHAR(type,t);
 }
 
-PETSC_EXTERN void PETSC_STDCALL petscfeviewfromoptions_(PetscFE *ao,PetscObject obj,char* type PETSC_MIXED_LEN(len),PetscErrorCode *ierr PETSC_END_LEN(len))
+PETSC_EXTERN void petscfeviewfromoptions_(PetscFE *ao,PetscObject obj,char* type,PetscErrorCode *ierr,PETSC_FORTRAN_CHARLEN_T len)
 {
   char *t;
 
   FIXCHAR(type,len,t);
+  CHKFORTRANNULLOBJECT(obj);
   *ierr = PetscFEViewFromOptions(*ao,obj,t);if (*ierr) return;
   FREECHAR(type,t);
 }

@@ -16,6 +16,7 @@ typedef struct {
   PetscInt     curr;             /* current tip of snapshots set */
   Vec          *xsnap;           /* snapshots */
   Vec          *bsnap;           /* rhs snapshots */
+  Vec          *work;            /* parallel work vectors */
   PetscScalar  *dots_iallreduce;
   MPI_Request  req_iallreduce;
   PetscInt     ndots_iallreduce; /* if we have iallreduce we can hide the VecMDot communications */
@@ -50,7 +51,7 @@ static PetscErrorCode KSPGuessReset_POD(KSPGuess guess)
   pod->curr = 0;
   /* need to wait for completion of outstanding requests */
   if (pod->ndots_iallreduce) {
-    ierr = MPI_Wait(&pod->req_iallreduce,MPI_STATUS_IGNORE);CHKERRQ(ierr);
+    ierr = MPI_Wait(&pod->req_iallreduce,MPI_STATUS_IGNORE);CHKERRMPI(ierr);
   }
   pod->ndots_iallreduce = 0;
   /* destroy vectors if the size of the linear system has changed */
@@ -67,6 +68,7 @@ static PetscErrorCode KSPGuessReset_POD(KSPGuess guess)
   if (!cong) {
     ierr = VecDestroyVecs(pod->maxn,&pod->xsnap);CHKERRQ(ierr);
     ierr = VecDestroyVecs(pod->maxn,&pod->bsnap);CHKERRQ(ierr);
+    ierr = VecDestroyVecs(1,&pod->work);CHKERRQ(ierr);
   }
   PetscFunctionReturn(0);
 }
@@ -124,6 +126,9 @@ static PetscErrorCode KSPGuessSetUp_POD(KSPGuess guess)
     ierr = VecDuplicateVecs(pod->xsnap[0],pod->maxn,&pod->bsnap);CHKERRQ(ierr);
     ierr = PetscLogObjectParents(guess,pod->maxn,pod->bsnap);CHKERRQ(ierr);
   }
+  if (!pod->work) {
+    ierr = KSPCreateVecs(guess->ksp,1,&pod->work,0,NULL);CHKERRQ(ierr);
+  }
   PetscFunctionReturn(0);
 }
 
@@ -140,12 +145,13 @@ static PetscErrorCode KSPGuessDestroy_POD(KSPGuess guess)
 #endif
   /* need to wait for completion before destroying dots_iallreduce */
   if (pod->ndots_iallreduce) {
-    ierr = MPI_Wait(&pod->req_iallreduce,MPI_STATUS_IGNORE);CHKERRQ(ierr);
+    ierr = MPI_Wait(&pod->req_iallreduce,MPI_STATUS_IGNORE);CHKERRMPI(ierr);
   }
   ierr = PetscFree(pod->dots_iallreduce);CHKERRQ(ierr);
   ierr = PetscFree(pod->swork);CHKERRQ(ierr);
   ierr = VecDestroyVecs(pod->maxn,&pod->bsnap);CHKERRQ(ierr);
   ierr = VecDestroyVecs(pod->maxn,&pod->xsnap);CHKERRQ(ierr);
+  ierr = VecDestroyVecs(1,&pod->work);CHKERRQ(ierr);
   ierr = PetscFree(pod);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
@@ -172,7 +178,7 @@ static PetscErrorCode KSPGuessFormGuess_POD(KSPGuess guess,Vec b,Vec x)
   ierr = VecRestoreArrayRead(b,(const PetscScalar**)&array);CHKERRQ(ierr);
   ierr = VecMDot(pod->bsnap[pod->curr],pod->n,pod->xsnap,pod->swork);CHKERRQ(ierr);
   ierr = VecResetArray(pod->bsnap[pod->curr]);CHKERRQ(ierr);
-  ierr = MPIU_Allreduce(pod->swork,pod->swork + pod->n,pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRQ(ierr);
+  ierr = MPIU_Allreduce(pod->swork,pod->swork + pod->n,pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRMPI(ierr);
   ierr = PetscBLASIntCast(pod->n,&bN);CHKERRQ(ierr);
   ierr = PetscBLASIntCast(pod->nen,&bNen);CHKERRQ(ierr);
   PetscStackCallBLAS("BLASgemv",BLASgemv_("T",&bN,&bNen,&one,pod->eigv+pod->st*pod->n,&bN,pod->swork+pod->n,&ione,&zero,pod->swork,&ione));
@@ -196,7 +202,7 @@ static PetscErrorCode KSPGuessFormGuess_POD(KSPGuess guess,Vec b,Vec x)
       PetscMPIInt rank;
       Mat         L;
 
-      ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)guess),&rank);CHKERRQ(ierr);
+      ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)guess),&rank);CHKERRMPI(ierr);
       ierr = MatCreateSeqDense(PETSC_COMM_SELF,pod->nen,pod->nen,pod->low,&L);CHKERRQ(ierr);
       if (!rank) {
         ierr = MatView(L,NULL);CHKERRQ(ierr);
@@ -225,11 +231,10 @@ static PetscErrorCode KSPGuessFormGuess_POD(KSPGuess guess,Vec b,Vec x)
   }
   ierr = VecGetArray(x,&array);CHKERRQ(ierr);
   ierr = VecPlaceArray(pod->bsnap[pod->curr],array);CHKERRQ(ierr);
-  ierr = VecRestoreArray(x,&array);CHKERRQ(ierr);
   ierr = VecSet(pod->bsnap[pod->curr],0);CHKERRQ(ierr);
   ierr = VecMAXPY(pod->bsnap[pod->curr],pod->n,pod->swork+pod->n,pod->xsnap);CHKERRQ(ierr);
   ierr = VecResetArray(pod->bsnap[pod->curr]);CHKERRQ(ierr);
-  ierr = PetscObjectStateIncrease((PetscObject)x);CHKERRQ(ierr);
+  ierr = VecRestoreArray(x,&array);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 
@@ -247,17 +252,16 @@ static PetscErrorCode KSPGuessUpdate_POD(KSPGuess guess, Vec b, Vec x)
   pod->n = pod->n < pod->maxn ? pod->n+1 : pod->maxn;
   ierr = VecCopy(x,pod->xsnap[pod->curr]);CHKERRQ(ierr);
   ierr = VecGetArray(pod->bsnap[pod->curr],&array);CHKERRQ(ierr);
-  ierr = VecPlaceArray(b,array);CHKERRQ(ierr);
+  ierr = VecPlaceArray(pod->work[0],array);CHKERRQ(ierr);
+  ierr = KSP_MatMult(guess->ksp,guess->A,x,pod->work[0]);CHKERRQ(ierr);
+  ierr = VecResetArray(pod->work[0]);CHKERRQ(ierr);
   ierr = VecRestoreArray(pod->bsnap[pod->curr],&array);CHKERRQ(ierr);
-  ierr = KSP_MatMult(guess->ksp,guess->A,x,b);CHKERRQ(ierr);
-  ierr = VecResetArray(b);CHKERRQ(ierr);
-  ierr = PetscObjectStateIncrease((PetscObject)pod->bsnap[pod->curr]);CHKERRQ(ierr);
   if (pod->Aspd) {
     ierr = VecMDot(pod->xsnap[pod->curr],pod->n,pod->bsnap,pod->swork);CHKERRQ(ierr);
 #if !defined(PETSC_HAVE_MPI_IALLREDUCE)
-    ierr = MPIU_Allreduce(pod->swork,pod->swork + 3*pod->n,pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRQ(ierr);
+    ierr = MPIU_Allreduce(pod->swork,pod->swork + 3*pod->n,pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRMPI(ierr);
 #else
-    ierr = MPI_Iallreduce(pod->swork,pod->dots_iallreduce,pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess),&pod->req_iallreduce);CHKERRQ(ierr);
+    ierr = MPI_Iallreduce(pod->swork,pod->dots_iallreduce,pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess),&pod->req_iallreduce);CHKERRMPI(ierr);
     pod->ndots_iallreduce = 1;
 #endif
   } else {
@@ -278,17 +282,17 @@ static PetscErrorCode KSPGuessUpdate_POD(KSPGuess guess, Vec b, Vec x)
       off  = (off == pod->n) ? 2*pod->n : pod->n;
       ierr = VecMDot(pod->xsnap[pod->curr],pod->n,pod->bsnap,pod->swork + off);CHKERRQ(ierr);
 #if !defined(PETSC_HAVE_MPI_IALLREDUCE)
-      ierr = MPIU_Allreduce(pod->swork,pod->swork + 3*pod->n,3*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRQ(ierr);
+      ierr = MPIU_Allreduce(pod->swork,pod->swork + 3*pod->n,3*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRMPI(ierr);
 #else
-      ierr = MPI_Iallreduce(pod->swork,pod->dots_iallreduce,3*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess),&pod->req_iallreduce);CHKERRQ(ierr);
+      ierr = MPI_Iallreduce(pod->swork,pod->dots_iallreduce,3*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess),&pod->req_iallreduce);CHKERRMPI(ierr);
       pod->ndots_iallreduce = 3;
 #endif
     } else {
 #if !defined(PETSC_HAVE_MPI_IALLREDUCE)
-      ierr = MPIU_Allreduce(pod->swork,pod->swork + 3*pod->n,2*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRQ(ierr);
+      ierr = MPIU_Allreduce(pod->swork,pod->swork + 3*pod->n,2*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRMPI(ierr);
       for (i=0;i<pod->n;i++) pod->swork[5*pod->n + i] = pod->swork[4*pod->n + i];
 #else
-      ierr = MPI_Iallreduce(pod->swork,pod->dots_iallreduce,2*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess),&pod->req_iallreduce);CHKERRQ(ierr);
+      ierr = MPI_Iallreduce(pod->swork,pod->dots_iallreduce,2*pod->n,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess),&pod->req_iallreduce);CHKERRMPI(ierr);
       pod->ndots_iallreduce = 2;
 #endif
     }
@@ -297,7 +301,7 @@ static PetscErrorCode KSPGuessUpdate_POD(KSPGuess guess, Vec b, Vec x)
 
 complete_request:
   if (pod->ndots_iallreduce) {
-    ierr = MPI_Wait(&pod->req_iallreduce,MPI_STATUS_IGNORE);CHKERRQ(ierr);
+    ierr = MPI_Wait(&pod->req_iallreduce,MPI_STATUS_IGNORE);CHKERRMPI(ierr);
     switch (pod->ndots_iallreduce) {
     case 3:
       for (i=0;i<pod->n;i++) pod->swork[3*pod->n + i] = pod->dots_iallreduce[         i];
@@ -314,7 +318,6 @@ complete_request:
       break;
     default:
       SETERRQ1(PetscObjectComm((PetscObject)guess),PETSC_ERR_PLIB,"Invalid number of outstanding dots operations: %D",pod->ndots_iallreduce);
-      break;
     }
   }
   pod->ndots_iallreduce = 0;
@@ -348,7 +351,7 @@ complete_request:
   if (lierr<0) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_LIB,"Error in SYEV Lapack routine: illegal argument %d",-(int)lierr);
   else if (lierr) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_LIB,"Error in SYEV Lapack routine: %d eigenvectors failed to converge",(int)lierr);
 
-  /* dimension of lower dimensional system */ 
+  /* dimension of lower dimensional system */
   pod->st = -1;
   for (i=0,toten=0;i<pod->n;i++) {
     pod->eigs[i] = PetscMax(pod->eigs[i],0.0);
@@ -370,7 +373,7 @@ complete_request:
     PetscInt        j;
 
     for (j=0;j<pod->n;j++) pod->eigv[st+j] *= v;
-  } 
+  }
 
   /* compute S * V^T * X^T * A * X * V * S if needed */
   if (pod->nen && !pod->Aspd) {
@@ -388,25 +391,25 @@ complete_request:
       ierr = PetscPrintf(PetscObjectComm((PetscObject)guess),"%1.6e (%d) ",pod->eigs[i]/toten,i >= pod->st ? 1 : 0);CHKERRQ(ierr);
     }
     ierr = PetscPrintf(PetscObjectComm((PetscObject)guess),"\n");CHKERRQ(ierr);
-#if defined(PETSC_USE_DEBUG)
-    for (i=0;i<pod->n;i++) {
-      Vec v;
-      PetscInt j;
-      PetscBLASInt bNen,ione = 1;
+    if (PetscDefined(USE_DEBUG)) {
+      for (i=0;i<pod->n;i++) {
+        Vec v;
+        PetscInt j;
+        PetscBLASInt bNen,ione = 1;
 
-      ierr = VecDuplicate(pod->xsnap[i],&v);CHKERRQ(ierr);
-      ierr = VecCopy(pod->xsnap[i],v);CHKERRQ(ierr);
-      ierr = PetscBLASIntCast(pod->nen,&bNen);CHKERRQ(ierr);
-      PetscStackCallBLAS("BLASgemv",BLASgemv_("T",&bN,&bNen,&one,pod->eigv+pod->st*pod->n,&bN,pod->corr+pod->maxn*i,&ione,&zero,pod->swork,&ione));
-      PetscStackCallBLAS("BLASgemv",BLASgemv_("N",&bN,&bNen,&one,pod->eigv+pod->st*pod->n,&bN,pod->swork,&ione,&zero,pod->swork+pod->n,&ione));
-      for (j=0;j<pod->n;j++) pod->swork[j] = -pod->swork[pod->n+j];
-      ierr = VecMAXPY(v,pod->n,pod->swork,pod->xsnap);CHKERRQ(ierr);
-      ierr = VecDot(v,v,pod->swork);CHKERRQ(ierr);
-      ierr = MPIU_Allreduce(pod->swork,pod->swork + 1,1,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRQ(ierr);
-      ierr = PetscPrintf(PetscObjectComm((PetscObject)guess),"  Error projection %D: %g (expected lower than %g)\n",i,(double)PetscRealPart(pod->swork[1]),(double)(toten-parten));CHKERRQ(ierr);
-      ierr = VecDestroy(&v);CHKERRQ(ierr);
+        ierr = VecDuplicate(pod->xsnap[i],&v);CHKERRQ(ierr);
+        ierr = VecCopy(pod->xsnap[i],v);CHKERRQ(ierr);
+        ierr = PetscBLASIntCast(pod->nen,&bNen);CHKERRQ(ierr);
+        PetscStackCallBLAS("BLASgemv",BLASgemv_("T",&bN,&bNen,&one,pod->eigv+pod->st*pod->n,&bN,pod->corr+pod->maxn*i,&ione,&zero,pod->swork,&ione));
+        PetscStackCallBLAS("BLASgemv",BLASgemv_("N",&bN,&bNen,&one,pod->eigv+pod->st*pod->n,&bN,pod->swork,&ione,&zero,pod->swork+pod->n,&ione));
+        for (j=0;j<pod->n;j++) pod->swork[j] = -pod->swork[pod->n+j];
+        ierr = VecMAXPY(v,pod->n,pod->swork,pod->xsnap);CHKERRQ(ierr);
+        ierr = VecDot(v,v,pod->swork);CHKERRQ(ierr);
+        ierr = MPIU_Allreduce(pod->swork,pod->swork + 1,1,MPIU_SCALAR,MPIU_SUM,PetscObjectComm((PetscObject)guess));CHKERRMPI(ierr);
+        ierr = PetscPrintf(PetscObjectComm((PetscObject)guess),"  Error projection %D: %g (expected lower than %g)\n",i,(double)PetscRealPart(pod->swork[1]),(double)(toten-parten));CHKERRQ(ierr);
+        ierr = VecDestroy(&v);CHKERRQ(ierr);
+      }
     }
-#endif
   }
   /* new tip */
   pod->curr = (pod->curr+1)%pod->maxn;
@@ -449,7 +452,7 @@ static PetscErrorCode KSPGuessView_POD(KSPGuess guess,PetscViewer viewer)
   The number of solutions to be retained and the energy tolerance to construct the lower dimensional basis can be specified at command line by -ksp_guess_pod_tol <real> and -ksp_guess_pod_size <int>.
 
   References:
-.   1. - http://www.math.uni-konstanz.de/numerik/personen/volkwein/teaching/POD-Book.pdf 
+.   1. - http://www.math.uni-konstanz.de/numerik/personen/volkwein/teaching/POD-Book.pdf
 
     Level: intermediate
 

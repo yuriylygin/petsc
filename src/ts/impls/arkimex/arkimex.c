@@ -100,7 +100,7 @@ M*/
 .seealso: TSARKIMEX, TSARKIMEXType, TSARKIMEXSetType()
 M*/
 /*MC
-     TSARKIMEX1BEE - First order Backward Euler represented as an ARK IMEX scheme with extrapolation as error estimator. This is a 3-stage method.
+     TSARKIMEX1BEE - First order backward Euler represented as an ARK IMEX scheme with extrapolation as error estimator. This is a 3-stage method.
 
      This method is aimed at starting the integration of implicit DAEs when explicit first-stage ARK methods are used.
 
@@ -142,7 +142,7 @@ M*/
 
      Options Database:
 .      -ts_arkimex_type 2e
- 
+
     Level: advanced
 
 .seealso: TSARKIMEX, TSARKIMEXType, TSARKIMEXSetType()
@@ -680,6 +680,35 @@ unavailable:
   PetscFunctionReturn(0);
 }
 
+static PetscErrorCode TSARKIMEXTestMassIdentity(TS ts,PetscBool *id)
+{
+  PetscErrorCode ierr;
+  Vec            Udot,Y1,Y2;
+  TS_ARKIMEX     *ark = (TS_ARKIMEX*)ts->data;
+  PetscReal      norm;
+
+  PetscFunctionBegin;
+  ierr = VecDuplicate(ts->vec_sol,&Udot);CHKERRQ(ierr);
+  ierr = VecDuplicate(ts->vec_sol,&Y1);CHKERRQ(ierr);
+  ierr = VecDuplicate(ts->vec_sol,&Y2);CHKERRQ(ierr);
+  ierr = TSComputeIFunction(ts,ts->ptime,ts->vec_sol,Udot,Y1,ark->imex);CHKERRQ(ierr);
+  ierr = VecSetRandom(Udot,NULL);CHKERRQ(ierr);
+  ierr = TSComputeIFunction(ts,ts->ptime,ts->vec_sol,Udot,Y2,ark->imex);CHKERRQ(ierr);
+  ierr = VecAXPY(Y2,-1.0,Y1);CHKERRQ(ierr);
+  ierr = VecAXPY(Y2,-1.0,Udot);CHKERRQ(ierr);
+  ierr = VecNorm(Y2,NORM_2,&norm);CHKERRQ(ierr);
+  if (norm < 100.0*PETSC_MACHINE_EPSILON) {
+    *id = PETSC_TRUE;
+  } else {
+    *id = PETSC_FALSE;
+    ierr = PetscInfo1((PetscObject)ts,"IFunction(Udot = random) - IFunction(Udot = 0) is not near Udot, %g, suspect mass matrix implied in IFunction() is not the identity as required\n",(double)norm);CHKERRQ(ierr);
+  }
+  ierr = VecDestroy(&Udot);CHKERRQ(ierr);
+  ierr = VecDestroy(&Y1);CHKERRQ(ierr);
+  ierr = VecDestroy(&Y2);CHKERRQ(ierr);
+  PetscFunctionReturn(0);
+}
+
 static PetscErrorCode TSRollBack_ARKIMEX(TS ts)
 {
   TS_ARKIMEX      *ark = (TS_ARKIMEX*)ts->data;
@@ -747,6 +776,11 @@ static PetscErrorCode TSStep_ARKIMEX(TS ts)
 
   if (ts->equation_type >= TS_EQ_IMPLICIT && tab->explicit_first_stage && ts->steprestart) {
     TS ts_start;
+    if (PetscDefined(USE_DEBUG)) {
+      PetscBool id = PETSC_FALSE;
+      ierr = TSARKIMEXTestMassIdentity(ts,&id);CHKERRQ(ierr);
+      if (!id) SETERRQ(PetscObjectComm((PetscObject)ts),PETSC_ERR_ARG_INCOMP,"This scheme requires an identity mass matrix, however the TSIFunction you provide does not utilize an identity mass matrix");
+    }
     ierr = TSClone(ts,&ts_start);CHKERRQ(ierr);
     ierr = TSSetSolution(ts_start,ts->vec_sol);CHKERRQ(ierr);
     ierr = TSSetTime(ts_start,ts->ptime);CHKERRQ(ierr);
@@ -823,7 +857,7 @@ static PetscErrorCode TSStep_ARKIMEX(TS ts)
       }
       if (ts->equation_type >= TS_EQ_IMPLICIT) {
         if (i==0 && tab->explicit_first_stage) {
-          if (!tab->stiffly_accurate ) SETERRQ1(PetscObjectComm((PetscObject)ts),PETSC_ERR_SUP,"TSARKIMEX %s is not stiffly accurate and therefore explicit-first stage methods cannot be used if the equation is implicit because the slope cannot be evaluated",ark->tableau->name);
+          if (!tab->stiffly_accurate) SETERRQ1(PetscObjectComm((PetscObject)ts),PETSC_ERR_SUP,"TSARKIMEX %s is not stiffly accurate and therefore explicit-first stage methods cannot be used if the equation is implicit because the slope cannot be evaluated",ark->tableau->name);
           ierr = VecCopy(Ydot0,YdotI[0]);CHKERRQ(ierr);                                      /* YdotI = YdotI(tn-1) */
         } else {
           ierr = VecAXPBYPCZ(YdotI[i],-ark->scoeff/h,ark->scoeff/h,0,Z,Y[i]);CHKERRQ(ierr);  /* YdotI = shift*(X-Z) */
@@ -842,7 +876,7 @@ static PetscErrorCode TSStep_ARKIMEX(TS ts)
           ierr = VecZeroEntries(YdotRHS[i]);CHKERRQ(ierr);
         }
       }
-      ierr = TSPostStage(ts,ark->stage_time,i,Y); CHKERRQ(ierr);
+      ierr = TSPostStage(ts,ark->stage_time,i,Y);CHKERRQ(ierr);
     }
 
     ark->status = TS_STEP_INCOMPLETE;
@@ -1186,11 +1220,15 @@ static PetscErrorCode TSView_ARKIMEX(TS ts,PetscViewer viewer)
     ARKTableau    tab = ark->tableau;
     TSARKIMEXType arktype;
     char          buf[512];
+    PetscBool     flg;
+
     ierr = TSARKIMEXGetType(ts,&arktype);CHKERRQ(ierr);
+    ierr = TSARKIMEXGetFullyImplicit(ts,&flg);CHKERRQ(ierr);
     ierr = PetscViewerASCIIPrintf(viewer,"  ARK IMEX %s\n",arktype);CHKERRQ(ierr);
     ierr = PetscFormatRealArray(buf,sizeof(buf),"% 8.6f",tab->s,tab->ct);CHKERRQ(ierr);
     ierr = PetscViewerASCIIPrintf(viewer,"  Stiff abscissa       ct = %s\n",buf);CHKERRQ(ierr);
     ierr = PetscFormatRealArray(buf,sizeof(buf),"% 8.6f",tab->s,tab->c);CHKERRQ(ierr);
+    ierr = PetscViewerASCIIPrintf(viewer,"Fully implicit: %s\n",flg ? "yes" : "no");CHKERRQ(ierr);
     ierr = PetscViewerASCIIPrintf(viewer,"Stiffly accurate: %s\n",tab->stiffly_accurate ? "yes" : "no");CHKERRQ(ierr);
     ierr = PetscViewerASCIIPrintf(viewer,"Explicit first stage: %s\n",tab->explicit_first_stage ? "yes" : "no");CHKERRQ(ierr);
     ierr = PetscViewerASCIIPrintf(viewer,"FSAL property: %s\n",tab->FSAL_implicit ? "yes" : "no");CHKERRQ(ierr);
@@ -1280,7 +1318,7 @@ PetscErrorCode TSARKIMEXGetType(TS ts,TSARKIMEXType *arktype)
 
   Level: intermediate
 
-.seealso: TSARKIMEXGetType()
+.seealso: TSARKIMEXGetType(), TSARKIMEXGetFullyImplicit()
 @*/
 PetscErrorCode TSARKIMEXSetFullyImplicit(TS ts,PetscBool flg)
 {
@@ -1288,7 +1326,34 @@ PetscErrorCode TSARKIMEXSetFullyImplicit(TS ts,PetscBool flg)
 
   PetscFunctionBegin;
   PetscValidHeaderSpecific(ts,TS_CLASSID,1);
+  PetscValidLogicalCollectiveBool(ts,flg,2);
   ierr = PetscTryMethod(ts,"TSARKIMEXSetFullyImplicit_C",(TS,PetscBool),(ts,flg));CHKERRQ(ierr);
+  PetscFunctionReturn(0);
+}
+
+/*@
+  TSARKIMEXGetFullyImplicit - Inquires if both parts of the equation are solved implicitly
+
+  Logically collective
+
+  Input Parameter:
+.  ts - timestepping context
+
+  Output Parameter:
+.  flg - PETSC_TRUE for fully implicit
+
+  Level: intermediate
+
+.seealso: TSARKIMEXGetType(), TSARKIMEXSetFullyImplicit()
+@*/
+PetscErrorCode TSARKIMEXGetFullyImplicit(TS ts,PetscBool *flg)
+{
+  PetscErrorCode ierr;
+
+  PetscFunctionBegin;
+  PetscValidHeaderSpecific(ts,TS_CLASSID,1);
+  PetscValidPointer(flg,2);
+  ierr = PetscUseMethod(ts,"TSARKIMEXGetFullyImplicit_C",(TS,PetscBool*),(ts,flg));CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 
@@ -1323,7 +1388,6 @@ static PetscErrorCode  TSARKIMEXSetType_ARKIMEX(TS ts,TSARKIMEXType arktype)
     }
   }
   SETERRQ1(PetscObjectComm((PetscObject)ts),PETSC_ERR_ARG_UNKNOWN_TYPE,"Could not find '%s'",arktype);
-  PetscFunctionReturn(0);
 }
 
 static PetscErrorCode  TSARKIMEXSetFullyImplicit_ARKIMEX(TS ts,PetscBool flg)
@@ -1332,6 +1396,15 @@ static PetscErrorCode  TSARKIMEXSetFullyImplicit_ARKIMEX(TS ts,PetscBool flg)
 
   PetscFunctionBegin;
   ark->imex = (PetscBool)!flg;
+  PetscFunctionReturn(0);
+}
+
+static PetscErrorCode  TSARKIMEXGetFullyImplicit_ARKIMEX(TS ts,PetscBool *flg)
+{
+  TS_ARKIMEX *ark = (TS_ARKIMEX*)ts->data;
+
+  PetscFunctionBegin;
+  *flg = (PetscBool)!ark->imex;
   PetscFunctionReturn(0);
 }
 
@@ -1349,12 +1422,13 @@ static PetscErrorCode TSDestroy_ARKIMEX(TS ts)
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXGetType_C",NULL);CHKERRQ(ierr);
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXSetType_C",NULL);CHKERRQ(ierr);
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXSetFullyImplicit_C",NULL);CHKERRQ(ierr);
+  ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXSetFullyImplicit_C",NULL);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 
 /* ------------------------------------------------------------ */
 /*MC
-      TSARKIMEX - ODE and DAE solver using Additive Runge-Kutta IMEX schemes
+      TSARKIMEX - ODE and DAE solver using additive Runge-Kutta IMEX schemes
 
   These methods are intended for problems with well-separated time scales, especially when a slow scale is strongly
   nonlinear such that it is expensive to solve with a fully implicit method. The user should provide the stiff part
@@ -1371,8 +1445,8 @@ static PetscErrorCode TSDestroy_ARKIMEX(TS ts)
 
   Level: beginner
 
-.seealso:  TSCreate(), TS, TSSetType(), TSARKIMEXSetType(), TSARKIMEXGetType(), TSARKIMEXSetFullyImplicit(), TSARKIMEX1BEE,
-           TSARKIMEX2C, TSARKIMEX2D, TSARKIMEX2E, TSARKIMEX3, TSARKIMEXL2, TSARKIMEXA2, TSARKIMEXARS122,
+.seealso:  TSCreate(), TS, TSSetType(), TSARKIMEXSetType(), TSARKIMEXGetType(), TSARKIMEXSetFullyImplicit(), TSARKIMEXGetFullyImplicit(),
+           TSARKIMEX1BEE, TSARKIMEX2C, TSARKIMEX2D, TSARKIMEX2E, TSARKIMEX3, TSARKIMEXL2, TSARKIMEXA2, TSARKIMEXARS122,
            TSARKIMEX4, TSARKIMEX5, TSARKIMEXPRSSP2, TSARKIMEXARS443, TSARKIMEXBPR3, TSARKIMEXType, TSARKIMEXRegister()
 
 M*/
@@ -1406,6 +1480,7 @@ PETSC_EXTERN PetscErrorCode TSCreate_ARKIMEX(TS ts)
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXGetType_C",TSARKIMEXGetType_ARKIMEX);CHKERRQ(ierr);
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXSetType_C",TSARKIMEXSetType_ARKIMEX);CHKERRQ(ierr);
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXSetFullyImplicit_C",TSARKIMEXSetFullyImplicit_ARKIMEX);CHKERRQ(ierr);
+  ierr = PetscObjectComposeFunction((PetscObject)ts,"TSARKIMEXGetFullyImplicit_C",TSARKIMEXGetFullyImplicit_ARKIMEX);CHKERRQ(ierr);
 
   ierr = TSARKIMEXSetType(ts,TSARKIMEXDefault);CHKERRQ(ierr);
   PetscFunctionReturn(0);

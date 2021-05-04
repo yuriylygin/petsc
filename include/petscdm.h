@@ -94,6 +94,7 @@ PETSC_EXTERN PetscErrorCode DMRefineHookAdd(DM,PetscErrorCode (*)(DM,DM,void*),P
 PETSC_EXTERN PetscErrorCode DMRefineHookRemove(DM,PetscErrorCode (*)(DM,DM,void*),PetscErrorCode (*)(DM,Mat,DM,void*),void*);
 PETSC_EXTERN PetscErrorCode DMRestrict(DM,Mat,Vec,Mat,DM);
 PETSC_EXTERN PetscErrorCode DMInterpolate(DM,Mat,DM);
+PETSC_EXTERN PetscErrorCode DMInterpolateSolution(DM,DM,Mat,Vec,Vec);
 PETSC_EXTERN PetscErrorCode DMSetFromOptions(DM);
 PETSC_EXTERN PetscErrorCode DMViewFromOptions(DM,PetscObject,const char[]);
 
@@ -148,6 +149,7 @@ PETSC_EXTERN PetscErrorCode DMGetCoordinateField(DM,DMField*);
 PETSC_EXTERN PetscErrorCode DMSetCoordinateField(DM,DMField);
 PETSC_EXTERN PetscErrorCode DMGetBoundingBox(DM,PetscReal[],PetscReal[]);
 PETSC_EXTERN PetscErrorCode DMGetLocalBoundingBox(DM,PetscReal[],PetscReal[]);
+PETSC_EXTERN PetscErrorCode DMProjectCoordinates(DM,PetscFE);
 
 /* block hook interface */
 PETSC_EXTERN PetscErrorCode DMSubDomainHookAdd(DM,PetscErrorCode (*)(DM,DM,void*),PetscErrorCode (*)(DM,VecScatter,VecScatter,DM,void*),void*);
@@ -202,10 +204,10 @@ PETSC_EXTERN PetscErrorCode DMPrintCellVector(PetscInt, const char [], PetscInt,
 PETSC_EXTERN PetscErrorCode DMPrintCellMatrix(PetscInt, const char [], PetscInt, PetscInt, const PetscScalar []);
 PETSC_EXTERN PetscErrorCode DMPrintLocalVec(DM, const char [], PetscReal, Vec);
 
-PETSC_EXTERN PetscErrorCode DMSetNullSpaceConstructor(DM, PetscInt, PetscErrorCode (*)(DM, PetscInt, MatNullSpace *));
-PETSC_EXTERN PetscErrorCode DMGetNullSpaceConstructor(DM, PetscInt, PetscErrorCode (**)(DM, PetscInt, MatNullSpace *));
-PETSC_EXTERN PetscErrorCode DMSetNearNullSpaceConstructor(DM, PetscInt, PetscErrorCode (*)(DM, PetscInt, MatNullSpace *));
-PETSC_EXTERN PetscErrorCode DMGetNearNullSpaceConstructor(DM, PetscInt, PetscErrorCode (**)(DM, PetscInt, MatNullSpace *));
+PETSC_EXTERN PetscErrorCode DMSetNullSpaceConstructor(DM, PetscInt, PetscErrorCode (*)(DM, PetscInt, PetscInt, MatNullSpace *));
+PETSC_EXTERN PetscErrorCode DMGetNullSpaceConstructor(DM, PetscInt, PetscErrorCode (**)(DM, PetscInt, PetscInt, MatNullSpace *));
+PETSC_EXTERN PetscErrorCode DMSetNearNullSpaceConstructor(DM, PetscInt, PetscErrorCode (*)(DM, PetscInt, PetscInt, MatNullSpace *));
+PETSC_EXTERN PetscErrorCode DMGetNearNullSpaceConstructor(DM, PetscInt, PetscErrorCode (**)(DM, PetscInt, PetscInt, MatNullSpace *));
 
 PETSC_EXTERN PetscErrorCode DMGetSection(DM, PetscSection *); /* Use DMGetLocalSection() in new code (since v3.12) */
 PETSC_EXTERN PetscErrorCode DMSetSection(DM, PetscSection);   /* Use DMSetLocalSection() in new code (since v3.12) */
@@ -223,7 +225,7 @@ PETSC_EXTERN PetscErrorCode DMSetSectionSF(DM, PetscSF);
 PETSC_EXTERN PetscErrorCode DMCreateSectionSF(DM, PetscSection, PetscSection);
 PETSC_STATIC_INLINE PETSC_DEPRECATED_FUNCTION("Use DMGetSectionSF() (since v3.12)") PetscErrorCode DMGetDefaultSF(DM dm, PetscSF *s) {return DMGetSectionSF(dm,s);}
 PETSC_STATIC_INLINE PETSC_DEPRECATED_FUNCTION("Use DMSetSectionSF() (since v3.12)") PetscErrorCode DMSetDefaultSF(DM dm, PetscSF s) {return DMSetSectionSF(dm,s);}
-PETSC_STATIC_INLINE PETSC_DEPRECATED_FUNCTION("Use DMCreateSectionSF() (since v3.12)") PetscErrorCode DMCreateDefaultSF(DM dm, PetscSection l, PetscSection g ) {return DMCreateSectionSF(dm,l,g);}
+PETSC_STATIC_INLINE PETSC_DEPRECATED_FUNCTION("Use DMCreateSectionSF() (since v3.12)") PetscErrorCode DMCreateDefaultSF(DM dm, PetscSection l, PetscSection g) {return DMCreateSectionSF(dm,l,g);}
 PETSC_EXTERN PetscErrorCode DMGetPointSF(DM, PetscSF *);
 PETSC_EXTERN PetscErrorCode DMSetPointSF(DM, PetscSF);
 
@@ -241,6 +243,8 @@ PETSC_EXTERN PetscErrorCode DMSetNumFields(DM, PetscInt);
 PETSC_EXTERN PetscErrorCode DMGetField(DM, PetscInt, DMLabel *, PetscObject *);
 PETSC_EXTERN PetscErrorCode DMSetField(DM, PetscInt, DMLabel, PetscObject);
 PETSC_EXTERN PetscErrorCode DMAddField(DM, DMLabel, PetscObject);
+PETSC_EXTERN PetscErrorCode DMSetFieldAvoidTensor(DM, PetscInt, PetscBool);
+PETSC_EXTERN PetscErrorCode DMGetFieldAvoidTensor(DM, PetscInt, PetscBool *);
 PETSC_EXTERN PetscErrorCode DMClearFields(DM);
 PETSC_EXTERN PetscErrorCode DMCopyFields(DM, DM);
 PETSC_EXTERN PetscErrorCode DMGetAdjacency(DM, PetscInt, PetscBool *, PetscBool *);
@@ -254,10 +258,18 @@ PETSC_EXTERN PetscErrorCode DMGetCellDS(DM, PetscInt, PetscDS *);
 PETSC_EXTERN PetscErrorCode DMGetRegionDS(DM, DMLabel, IS *, PetscDS *);
 PETSC_EXTERN PetscErrorCode DMSetRegionDS(DM, DMLabel, IS, PetscDS);
 PETSC_EXTERN PetscErrorCode DMGetRegionNumDS(DM, PetscInt, DMLabel *, IS *, PetscDS *);
+PETSC_EXTERN PetscErrorCode DMSetRegionNumDS(DM, PetscInt, DMLabel, IS, PetscDS);
+PETSC_EXTERN PetscErrorCode DMFindRegionNum(DM, PetscDS, PetscInt *);
 PETSC_EXTERN PetscErrorCode DMCreateDS(DM);
 PETSC_EXTERN PetscErrorCode DMClearDS(DM);
 PETSC_EXTERN PetscErrorCode DMCopyDS(DM, DM);
 PETSC_EXTERN PetscErrorCode DMCopyDisc(DM, DM);
+PETSC_EXTERN PetscErrorCode DMComputeExactSolution(DM, PetscReal, Vec, Vec);
+PETSC_EXTERN PetscErrorCode DMGetNumAuxiliaryVec(DM, PetscInt *);
+PETSC_EXTERN PetscErrorCode DMGetAuxiliaryVec(DM, DMLabel, PetscInt, Vec *);
+PETSC_EXTERN PetscErrorCode DMSetAuxiliaryVec(DM, DMLabel, PetscInt, Vec);
+PETSC_EXTERN PetscErrorCode DMGetAuxiliaryLabels(DM, DMLabel[], PetscInt[]);
+PETSC_EXTERN PetscErrorCode DMCopyAuxiliaryVec(DM, DM);
 
 /*MC
   DMInterpolationInfo - Structure for holding information about interpolation on a mesh
@@ -294,7 +306,7 @@ PETSC_EXTERN PetscErrorCode DMInterpolationGetDim(DMInterpolationInfo, PetscInt 
 PETSC_EXTERN PetscErrorCode DMInterpolationSetDof(DMInterpolationInfo, PetscInt);
 PETSC_EXTERN PetscErrorCode DMInterpolationGetDof(DMInterpolationInfo, PetscInt *);
 PETSC_EXTERN PetscErrorCode DMInterpolationAddPoints(DMInterpolationInfo, PetscInt, PetscReal[]);
-PETSC_EXTERN PetscErrorCode DMInterpolationSetUp(DMInterpolationInfo, DM, PetscBool);
+PETSC_EXTERN PetscErrorCode DMInterpolationSetUp(DMInterpolationInfo, DM, PetscBool, PetscBool);
 PETSC_EXTERN PetscErrorCode DMInterpolationGetCoordinates(DMInterpolationInfo, Vec *);
 PETSC_EXTERN PetscErrorCode DMInterpolationGetVector(DMInterpolationInfo, Vec *);
 PETSC_EXTERN PetscErrorCode DMInterpolationRestoreVector(DMInterpolationInfo, Vec *);
@@ -324,11 +336,8 @@ PETSC_EXTERN PetscErrorCode DMRemoveLabel(DM, const char [], DMLabel *);
 PETSC_EXTERN PetscErrorCode DMRemoveLabelBySelf(DM, DMLabel *, PetscBool);
 PETSC_EXTERN PetscErrorCode DMCopyLabels(DM, DM, PetscCopyMode, PetscBool);
 
-PETSC_EXTERN PetscErrorCode DMAddBoundary(DM, DMBoundaryConditionType, const char[], const char[], PetscInt, PetscInt, const PetscInt *, void (*)(void), PetscInt, const PetscInt *, void *);
-PETSC_EXTERN PetscErrorCode DMGetNumBoundary(DM, PetscInt *);
-PETSC_EXTERN PetscErrorCode DMGetBoundary(DM, PetscInt, DMBoundaryConditionType *, const char **, const char **, PetscInt *, PetscInt *, const PetscInt **, void (**)(void), PetscInt *, const PetscInt **, void **);
+PETSC_EXTERN PetscErrorCode DMAddBoundary(DM, DMBoundaryConditionType, const char[], DMLabel, PetscInt, const PetscInt[], PetscInt, PetscInt, const PetscInt[], void (*)(void), void (*)(void), void *, PetscInt *);
 PETSC_EXTERN PetscErrorCode DMIsBoundaryPoint(DM, PetscInt, PetscBool *);
-PETSC_EXTERN PetscErrorCode DMCopyBoundary(DM, DM);
 
 PETSC_EXTERN PetscErrorCode DMProjectFunction(DM,PetscReal,PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal[],PetscInt,PetscScalar *,void *),void**,InsertMode,Vec);
 PETSC_EXTERN PetscErrorCode DMProjectFunctionLocal(DM,PetscReal,PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal[],PetscInt,PetscScalar *,void *),void**,InsertMode,Vec);
@@ -336,14 +345,13 @@ PETSC_EXTERN PetscErrorCode DMProjectFunctionLabel(DM, PetscReal, DMLabel, Petsc
 PETSC_EXTERN PetscErrorCode DMProjectFunctionLabelLocal(DM,PetscReal,DMLabel,PetscInt,const PetscInt[],PetscInt,const PetscInt[],PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal[],PetscInt,PetscScalar *,void *),void **,InsertMode,Vec);
 PETSC_EXTERN PetscErrorCode DMProjectFieldLocal(DM,PetscReal,Vec,void (**)(PetscInt,PetscInt,PetscInt,const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],PetscReal,const PetscReal[],PetscInt,const PetscScalar[],PetscScalar[]),InsertMode,Vec);
 PETSC_EXTERN PetscErrorCode DMProjectFieldLabelLocal(DM,PetscReal,DMLabel,PetscInt,const PetscInt[],PetscInt,const PetscInt[],Vec,void (**)(PetscInt,PetscInt,PetscInt,const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],PetscReal,const PetscReal[],PetscInt,const PetscScalar[],PetscScalar[]),InsertMode,Vec);
+PETSC_EXTERN PetscErrorCode DMProjectBdFieldLabelLocal(DM,PetscReal,DMLabel,PetscInt,const PetscInt[],PetscInt,const PetscInt[],Vec,void (**)(PetscInt,PetscInt,PetscInt,const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],PetscReal,const PetscReal[],const PetscReal[],PetscInt,const PetscScalar[],PetscScalar[]),InsertMode,Vec);
 PETSC_EXTERN PetscErrorCode DMComputeL2Diff(DM,PetscReal,PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal[],PetscInt,PetscScalar *,void *),void **,Vec,PetscReal *);
 PETSC_EXTERN PetscErrorCode DMComputeL2GradientDiff(DM, PetscReal, PetscErrorCode (**)(PetscInt, PetscReal, const PetscReal [], const PetscReal [], PetscInt, PetscScalar *, void *), void **, Vec, const PetscReal [], PetscReal *);
 PETSC_EXTERN PetscErrorCode DMComputeL2FieldDiff(DM,PetscReal,PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal[],PetscInt,PetscScalar *,void *),void **,Vec,PetscReal *);
+PETSC_EXTERN PetscErrorCode DMComputeError(DM, Vec, PetscReal[], Vec *);
 PETSC_EXTERN PetscErrorCode DMHasBasisTransform(DM,PetscBool*);
 PETSC_EXTERN PetscErrorCode DMCopyTransform(DM, DM);
-
-PETSC_EXTERN PetscErrorCode DMGetNullSpaceConstructor(DM, PetscInt, PetscErrorCode (**)(DM, PetscInt, MatNullSpace *));
-PETSC_EXTERN PetscErrorCode DMSetNullSpaceConstructor(DM, PetscInt, PetscErrorCode (*)(DM, PetscInt, MatNullSpace *));
 
 PETSC_EXTERN PetscErrorCode DMGetCompatibility(DM,DM,PetscBool*,PetscBool*);
 
@@ -351,5 +359,65 @@ PETSC_EXTERN PetscErrorCode DMMonitorSet(DM, PetscErrorCode (*)(DM, void *), voi
 PETSC_EXTERN PetscErrorCode DMMonitorCancel(DM);
 PETSC_EXTERN PetscErrorCode DMMonitorSetFromOptions(DM, const char[], const char[], const char[], PetscErrorCode (*)(DM, void *), PetscErrorCode (*)(DM, PetscViewerAndFormat *), PetscBool *);
 PETSC_EXTERN PetscErrorCode DMMonitor(DM);
+
+PETSC_STATIC_INLINE PetscInt DMPolytopeTypeGetDim(DMPolytopeType ct) {
+  switch (ct) {
+    case DM_POLYTOPE_POINT:
+      return 0;
+    case DM_POLYTOPE_SEGMENT:
+    case DM_POLYTOPE_POINT_PRISM_TENSOR:
+      return 1;
+    case DM_POLYTOPE_TRIANGLE:
+    case DM_POLYTOPE_QUADRILATERAL:
+    case DM_POLYTOPE_SEG_PRISM_TENSOR:
+      return 2;
+    case DM_POLYTOPE_TETRAHEDRON:
+    case DM_POLYTOPE_HEXAHEDRON:
+    case DM_POLYTOPE_TRI_PRISM:
+    case DM_POLYTOPE_TRI_PRISM_TENSOR:
+    case DM_POLYTOPE_QUAD_PRISM_TENSOR:
+    case DM_POLYTOPE_PYRAMID:
+      return 3;
+    default: return -1;
+  }
+}
+
+PETSC_STATIC_INLINE PetscInt DMPolytopeTypeGetConeSize(DMPolytopeType ct)
+{
+  switch (ct) {
+    case DM_POLYTOPE_POINT:              return 0;
+    case DM_POLYTOPE_SEGMENT:            return 2;
+    case DM_POLYTOPE_POINT_PRISM_TENSOR: return 2;
+    case DM_POLYTOPE_TRIANGLE:           return 3;
+    case DM_POLYTOPE_QUADRILATERAL:      return 4;
+    case DM_POLYTOPE_SEG_PRISM_TENSOR:   return 4;
+    case DM_POLYTOPE_TETRAHEDRON:        return 4;
+    case DM_POLYTOPE_HEXAHEDRON:         return 6;
+    case DM_POLYTOPE_TRI_PRISM:          return 5;
+    case DM_POLYTOPE_TRI_PRISM_TENSOR:   return 5;
+    case DM_POLYTOPE_QUAD_PRISM_TENSOR:  return 6;
+    case DM_POLYTOPE_PYRAMID:            return 5;
+    default: return -1;
+  }
+}
+
+PETSC_STATIC_INLINE PetscInt DMPolytopeTypeGetNumVertices(DMPolytopeType ct)
+{
+  switch (ct) {
+    case DM_POLYTOPE_POINT:              return 1;
+    case DM_POLYTOPE_SEGMENT:            return 2;
+    case DM_POLYTOPE_POINT_PRISM_TENSOR: return 2;
+    case DM_POLYTOPE_TRIANGLE:           return 3;
+    case DM_POLYTOPE_QUADRILATERAL:      return 4;
+    case DM_POLYTOPE_SEG_PRISM_TENSOR:   return 4;
+    case DM_POLYTOPE_TETRAHEDRON:        return 4;
+    case DM_POLYTOPE_HEXAHEDRON:         return 8;
+    case DM_POLYTOPE_TRI_PRISM:          return 6;
+    case DM_POLYTOPE_TRI_PRISM_TENSOR:   return 6;
+    case DM_POLYTOPE_QUAD_PRISM_TENSOR:  return 8;
+    case DM_POLYTOPE_PYRAMID:            return 5;
+    default: return -1;
+  }
+}
 
 #endif

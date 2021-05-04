@@ -1,4 +1,5 @@
-#requirespackage  'PETSC_HAVE_HPDDM'
+-include ../../../../../petscdir.mk
+#requirespackage 'PETSC_HAVE_HPDDM'
 
 ALL: lib
 

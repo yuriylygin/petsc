@@ -28,6 +28,26 @@ $  PETSCGAUSSLOBATTOLEGENDRE_VIA_NEWTON - compute the nodes by solving a nonline
 E*/
 typedef enum {PETSCGAUSSLOBATTOLEGENDRE_VIA_LINEAR_ALGEBRA,PETSCGAUSSLOBATTOLEGENDRE_VIA_NEWTON} PetscGaussLobattoLegendreCreateType;
 
+/*E
+  PetscDTNodeType - A description of strategies for generating nodes (both
+  quadrature nodes and nodes for Lagrange polynomials)
+
+  Level: intermediate
+
+$  PETSCDTNODES_DEFAULT - Nodes chosen by PETSc
+$  PETSCDTNODES_GAUSSJACOBI - Nodes at either Gauss-Jacobi or Gauss-Lobatto-Jacobi quadrature points
+$  PETSCDTNODES_EQUISPACED - Nodes equispaced either including the endpoints or excluding them
+$  PETSCDTNODES_TANHSINH - Nodes at Tanh-Sinh quadrature points
+
+  Note: a PetscDTNodeType can be paired with a PetscBool to indicate whether
+  the nodes include endpoints or not, and in the case of PETSCDT_GAUSSJACOBI
+  with exponents for the weight function.
+
+E*/
+typedef enum {PETSCDTNODES_DEFAULT=-1, PETSCDTNODES_GAUSSJACOBI, PETSCDTNODES_EQUISPACED, PETSCDTNODES_TANHSINH} PetscDTNodeType;
+
+PETSC_EXTERN const char *const PetscDTNodeTypes[];
+
 PETSC_EXTERN PetscErrorCode PetscQuadratureCreate(MPI_Comm, PetscQuadrature *);
 PETSC_EXTERN PetscErrorCode PetscQuadratureDuplicate(PetscQuadrature, PetscQuadrature *);
 PETSC_EXTERN PetscErrorCode PetscQuadratureGetOrder(PetscQuadrature, PetscInt*);
@@ -44,11 +64,17 @@ PETSC_EXTERN PetscErrorCode PetscQuadratureExpandComposite(PetscQuadrature, Pets
 PETSC_EXTERN PetscErrorCode PetscQuadraturePushForward(PetscQuadrature, PetscInt, const PetscReal[], const PetscReal[], const PetscReal[], PetscInt, PetscQuadrature *);
 
 PETSC_EXTERN PetscErrorCode PetscDTLegendreEval(PetscInt,const PetscReal*,PetscInt,const PetscInt*,PetscReal*,PetscReal*,PetscReal*);
+PETSC_EXTERN PetscErrorCode PetscDTJacobiNorm(PetscReal,PetscReal,PetscInt,PetscReal *);
+PETSC_EXTERN PetscErrorCode PetscDTJacobiEval(PetscInt,PetscReal,PetscReal,const PetscReal*,PetscInt,const PetscInt*,PetscReal*,PetscReal*,PetscReal*);
+PETSC_EXTERN PetscErrorCode PetscDTJacobiEvalJet(PetscReal,PetscReal,PetscInt,const PetscReal[],PetscInt,PetscInt,PetscReal[]);
+PETSC_EXTERN PetscErrorCode PetscDTPKDEvalJet(PetscInt,PetscInt,const PetscReal[],PetscInt,PetscInt,PetscReal[]);
 PETSC_EXTERN PetscErrorCode PetscDTGaussQuadrature(PetscInt,PetscReal,PetscReal,PetscReal*,PetscReal*);
+PETSC_EXTERN PetscErrorCode PetscDTGaussJacobiQuadrature(PetscInt,PetscReal,PetscReal,PetscReal,PetscReal,PetscReal*,PetscReal*);
+PETSC_EXTERN PetscErrorCode PetscDTGaussLobattoJacobiQuadrature(PetscInt,PetscReal,PetscReal,PetscReal,PetscReal,PetscReal*,PetscReal*);
 PETSC_EXTERN PetscErrorCode PetscDTGaussLobattoLegendreQuadrature(PetscInt,PetscGaussLobattoLegendreCreateType,PetscReal*,PetscReal*);
 PETSC_EXTERN PetscErrorCode PetscDTReconstructPoly(PetscInt,PetscInt,const PetscReal*,PetscInt,const PetscReal*,PetscReal*);
 PETSC_EXTERN PetscErrorCode PetscDTGaussTensorQuadrature(PetscInt,PetscInt,PetscInt,PetscReal,PetscReal,PetscQuadrature*);
-PETSC_EXTERN PetscErrorCode PetscDTGaussJacobiQuadrature(PetscInt,PetscInt,PetscInt,PetscReal,PetscReal,PetscQuadrature*);
+PETSC_EXTERN PetscErrorCode PetscDTStroudConicalQuadrature(PetscInt,PetscInt,PetscInt,PetscReal,PetscReal,PetscQuadrature*);
 
 PETSC_EXTERN PetscErrorCode PetscDTTanhSinhTensorQuadrature(PetscInt, PetscInt, PetscReal, PetscReal, PetscQuadrature *);
 PETSC_EXTERN PetscErrorCode PetscDTTanhSinhIntegrate(void (*)(PetscReal, PetscReal *), PetscReal, PetscReal, PetscInt, PetscReal *);
@@ -73,6 +99,11 @@ PETSC_EXTERN PetscErrorCode PetscDTAltVInterior(PetscInt, PetscInt, const PetscR
 PETSC_EXTERN PetscErrorCode PetscDTAltVInteriorMatrix(PetscInt, PetscInt, const PetscReal *, PetscReal *);
 PETSC_EXTERN PetscErrorCode PetscDTAltVInteriorPattern(PetscInt, PetscInt, PetscInt (*)[3]);
 PETSC_EXTERN PetscErrorCode PetscDTAltVStar(PetscInt, PetscInt, PetscInt, const PetscReal *, PetscReal *);
+
+PETSC_EXTERN PetscErrorCode PetscDTBaryToIndex(PetscInt,PetscInt,const PetscInt[],PetscInt*);
+PETSC_EXTERN PetscErrorCode PetscDTIndexToBary(PetscInt,PetscInt,PetscInt,PetscInt[]);
+PETSC_EXTERN PetscErrorCode PetscDTGradedOrderToIndex(PetscInt,const PetscInt[],PetscInt*);
+PETSC_EXTERN PetscErrorCode PetscDTIndexToGradedOrder(PetscInt,PetscInt,PetscInt[]);
 
 #if defined(PETSC_USE_64BIT_INDICES)
 #define PETSC_FACTORIAL_MAX 20
@@ -99,9 +130,9 @@ PETSC_STATIC_INLINE PetscErrorCode PetscDTFactorial(PetscInt n, PetscReal *facto
   PetscInt  i;
 
   PetscFunctionBegin;
-  *factorial = -1.;
+  *factorial = -1.0;
   if (n < 0) SETERRQ1(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Factorial called with negative number %D\n", n);
-  for (i = 1; i < n+1; ++i) f *= i;
+  for (i = 1; i < n+1; ++i) f *= (PetscReal)i;
   *factorial = f;
   PetscFunctionReturn(0);
 }
@@ -153,17 +184,18 @@ M*/
 PETSC_STATIC_INLINE PetscErrorCode PetscDTBinomial(PetscInt n, PetscInt k, PetscReal *binomial)
 {
   PetscFunctionBeginHot;
+  *binomial = -1.0;
   if (n < 0 || k < 0 || k > n) SETERRQ2(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Binomial arguments (%D %D) must be non-negative, k <= n\n", n, k);
   if (n <= 3) {
     PetscInt binomLookup[4][4] = {{1, 0, 0, 0}, {1, 1, 0, 0}, {1, 2, 1, 0}, {1, 3, 3, 1}};
 
-    *binomial = binomLookup[n][k];
+    *binomial = (PetscReal)binomLookup[n][k];
   } else {
-    PetscReal binom = 1.;
+    PetscReal binom = 1.0;
     PetscInt  i;
 
     k = PetscMin(k, n - k);
-    for (i = 0; i < k; i++) binom = (binom * (n - i)) / (i + 1);
+    for (i = 0; i < k; i++) binom = (binom * (PetscReal)(n - i)) / (PetscReal)(i + 1);
     *binomial = binom;
   }
   PetscFunctionReturn(0);
@@ -265,7 +297,7 @@ PETSC_STATIC_INLINE PetscErrorCode PetscDTEnumPerm(PetscInt n, PetscInt k, Petsc
 
    Output Arguments:
 +  k - an integer in [0, n!)
-.  isOdd - if not NULL, returns wether the permutation used an even or odd number of swaps.
+-  isOdd - if not NULL, returns wether the permutation used an even or odd number of swaps.
 
    Note: this is limited to n such that n! can be represented by PetscInt, which is 12 if PetscInt is a signed 32-bit integer and 20 if PetscInt is a signed 64-bit integer.
 
@@ -433,5 +465,19 @@ PETSC_STATIC_INLINE PetscErrorCode PetscDTEnumSplit(PetscInt n, PetscInt k, Pets
   if (isOdd) *isOdd = odd ? PETSC_TRUE : PETSC_FALSE;
   PetscFunctionReturn(0);
 }
+
+struct _p_PetscTabulation {
+  PetscInt    K;    /* Indicates a k-jet, namely tabulated derviatives up to order k */
+  PetscInt    Nr;   /* The number of tabulation replicas (often 1) */
+  PetscInt    Np;   /* The number of tabulation points in a replica */
+  PetscInt    Nb;   /* The number of functions tabulated */
+  PetscInt    Nc;   /* The number of function components */
+  PetscInt    cdim; /* The coordinate dimension */
+  PetscReal **T;    /* The tabulation T[K] of functions and their derivatives
+                       T[0] = B[Nr*Np][Nb][Nc]:             The basis function values at quadrature points
+                       T[1] = D[Nr*Np][Nb][Nc][cdim]:       The basis function derivatives at quadrature points
+                       T[2] = H[Nr*Np][Nb][Nc][cdim][cdim]: The basis function second derivatives at quadrature points */
+};
+typedef struct _p_PetscTabulation *PetscTabulation;
 
 #endif

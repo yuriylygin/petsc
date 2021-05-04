@@ -543,13 +543,13 @@ PetscErrorCode VecSet_Seq(Vec xin,PetscScalar alpha)
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
-  ierr = VecGetArray(xin,&xx);CHKERRQ(ierr);
+  ierr = VecGetArrayWrite(xin,&xx);CHKERRQ(ierr);
   if (alpha == (PetscScalar)0.0) {
     ierr = PetscArrayzero(xx,n);CHKERRQ(ierr);
   } else {
     for (i=0; i<n; i++) xx[i] = alpha;
   }
-  ierr = VecRestoreArray(xin,&xx);CHKERRQ(ierr);
+  ierr = VecRestoreArrayWrite(xin,&xx);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 
@@ -730,7 +730,7 @@ PetscErrorCode VecMaxPointwiseDivide_Seq(Vec xin,Vec yin,PetscReal *max)
   }
   ierr = VecRestoreArrayRead(xin,&xx);CHKERRQ(ierr);
   ierr = VecRestoreArrayRead(yin,&yy);CHKERRQ(ierr);
-  ierr = MPIU_Allreduce(&m,max,1,MPIU_REAL,MPIU_MAX,PetscObjectComm((PetscObject)xin));CHKERRQ(ierr);
+  ierr = MPIU_Allreduce(&m,max,1,MPIU_REAL,MPIU_MAX,PetscObjectComm((PetscObject)xin));CHKERRMPI(ierr);
   ierr = PetscLogFlops(n);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }

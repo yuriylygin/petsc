@@ -27,11 +27,9 @@ static PetscErrorCode MPIPetsc_Iallreduce(void *sendbuf,void *recvbuf,PetscMPIIn
 
   PetscFunctionBegin;
 #if defined(PETSC_HAVE_MPI_IALLREDUCE)
-  ierr = MPI_Iallreduce(sendbuf,recvbuf,count,datatype,op,comm,request);CHKERRQ(ierr);
-#elif defined(PETSC_HAVE_MPIX_IALLREDUCE)
-  ierr = MPIX_Iallreduce(sendbuf,recvbuf,count,datatype,op,comm,request);CHKERRQ(ierr);
+  ierr = MPI_Iallreduce(sendbuf,recvbuf,count,datatype,op,comm,request);CHKERRMPI(ierr);
 #else
-  ierr = MPIU_Allreduce(sendbuf,recvbuf,count,datatype,op,comm);CHKERRQ(ierr);
+  ierr = MPIU_Allreduce(sendbuf,recvbuf,count,datatype,op,comm);CHKERRMPI(ierr);
   *request = MPI_REQUEST_NULL;
 #endif
   PetscFunctionReturn(0);
@@ -65,7 +63,7 @@ static PetscErrorCode  PetscSplitReductionCreate(MPI_Comm comm,PetscSplitReducti
   (*sr)->comm        = comm;
   (*sr)->request     = MPI_REQUEST_NULL;
   (*sr)->async       = PETSC_FALSE;
-#if defined(PETSC_HAVE_MPI_IALLREDUCE) || defined(PETSC_HAVE_MPIX_IALLREDUCE)
+#if defined(PETSC_HAVE_MPI_IALLREDUCE)
   (*sr)->async = PETSC_TRUE;    /* Enable by default */
 #endif
   /* always check for option; so that tests that run on systems without support don't warn about unhandled options */
@@ -136,7 +134,7 @@ PetscErrorCode PetscCommSplitReductionBegin(MPI_Comm comm)
     MPI_Comm       comm = sr->comm;
     PetscMPIInt    size,cmul = sizeof(PetscScalar)/sizeof(PetscReal);
     ierr = PetscLogEventBegin(VEC_ReduceBegin,0,0,0,0);CHKERRQ(ierr);
-    ierr = MPI_Comm_size(sr->comm,&size);CHKERRQ(ierr);
+    ierr = MPI_Comm_size(sr->comm,&size);CHKERRMPI(ierr);
     if (size == 1) {
       ierr = PetscArraycpy(gvalues,lvalues,numops);CHKERRQ(ierr);
     } else {
@@ -185,7 +183,7 @@ PetscErrorCode PetscSplitReductionEnd(PetscSplitReduction *sr)
     /* We are doing asynchronous-mode communication and this is the first VecXxxEnd() so wait for comm to complete */
     ierr = PetscLogEventBegin(VEC_ReduceEnd,0,0,0,0);CHKERRQ(ierr);
     if (sr->request != MPI_REQUEST_NULL) {
-      ierr = MPI_Wait(&sr->request,MPI_STATUS_IGNORE);CHKERRQ(ierr);
+      ierr = MPI_Wait(&sr->request,MPI_STATUS_IGNORE);CHKERRMPI(ierr);
     }
     sr->state = STATE_END;
     ierr = PetscLogEventEnd(VEC_ReduceEnd,0,0,0,0);CHKERRQ(ierr);
@@ -210,7 +208,7 @@ static PetscErrorCode PetscSplitReductionApply(PetscSplitReduction *sr)
   PetscFunctionBegin;
   if (sr->numopsend > 0) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ORDER,"Cannot call this after VecxxxEnd() has been called");
   ierr = PetscLogEventBegin(VEC_ReduceCommunication,0,0,0,0);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(sr->comm,&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(sr->comm,&size);CHKERRMPI(ierr);
   if (size == 1) {
     ierr = PetscArraycpy(gvalues,lvalues,numops);CHKERRQ(ierr);
   } else {
@@ -227,13 +225,13 @@ static PetscErrorCode PetscSplitReductionApply(PetscSplitReduction *sr)
          to the reduction operations what are sums and what are max
       */
       for (i=0; i<numops; i++) lvalues[numops+i] = reducetype[i];
-      ierr = MPIU_Allreduce(lvalues,gvalues,2*numops,MPIU_SCALAR,PetscSplitReduction_Op,comm);CHKERRQ(ierr);
+      ierr = MPIU_Allreduce(lvalues,gvalues,2*numops,MPIU_SCALAR,PetscSplitReduction_Op,comm);CHKERRMPI(ierr);
     } else if (max_flg) {     /* Compute max of real and imag parts separately, presumably only the real part is used */
-      ierr = MPIU_Allreduce((PetscReal*)lvalues,(PetscReal*)gvalues,cmul*numops,MPIU_REAL,MPIU_MAX,comm);CHKERRQ(ierr);
+      ierr = MPIU_Allreduce((PetscReal*)lvalues,(PetscReal*)gvalues,cmul*numops,MPIU_REAL,MPIU_MAX,comm);CHKERRMPI(ierr);
     } else if (min_flg) {
-      ierr = MPIU_Allreduce((PetscReal*)lvalues,(PetscReal*)gvalues,cmul*numops,MPIU_REAL,MPIU_MIN,comm);CHKERRQ(ierr);
+      ierr = MPIU_Allreduce((PetscReal*)lvalues,(PetscReal*)gvalues,cmul*numops,MPIU_REAL,MPIU_MIN,comm);CHKERRMPI(ierr);
     } else {
-      ierr = MPIU_Allreduce(lvalues,gvalues,numops,MPIU_SCALAR,MPIU_SUM,comm);CHKERRQ(ierr);
+      ierr = MPIU_Allreduce(lvalues,gvalues,numops,MPIU_SCALAR,MPIU_SUM,comm);CHKERRMPI(ierr);
     }
   }
   sr->state     = STATE_END;
@@ -311,12 +309,12 @@ PetscErrorCode PetscSplitReductionGet(MPI_Comm comm,PetscSplitReduction **sr)
        the older version you will get a warning message about the next line;
        it is only a warning message and should do no harm.
     */
-    ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_DelReduction,&Petsc_Reduction_keyval,0);CHKERRQ(ierr);
+    ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_DelReduction,&Petsc_Reduction_keyval,NULL);CHKERRMPI(ierr);
   }
-  ierr = MPI_Comm_get_attr(comm,Petsc_Reduction_keyval,(void**)sr,&flag);CHKERRQ(ierr);
+  ierr = MPI_Comm_get_attr(comm,Petsc_Reduction_keyval,(void**)sr,&flag);CHKERRMPI(ierr);
   if (!flag) {  /* doesn't exist yet so create it and put it in */
     ierr = PetscSplitReductionCreate(comm,sr);CHKERRQ(ierr);
-    ierr = MPI_Comm_set_attr(comm,Petsc_Reduction_keyval,*sr);CHKERRQ(ierr);
+    ierr = MPI_Comm_set_attr(comm,Petsc_Reduction_keyval,*sr);CHKERRMPI(ierr);
     ierr = PetscInfo1(0,"Putting reduction data in an MPI_Comm %ld\n",(long)comm);CHKERRQ(ierr);
   }
   PetscFunctionReturn(0);
@@ -357,7 +355,7 @@ PetscErrorCode  VecDotBegin(Vec x,Vec y,PetscScalar *result)
   }
   sr->reducetype[sr->numopsbegin] = PETSC_SR_REDUCE_SUM;
   sr->invecs[sr->numopsbegin]     = (void*)x;
-  if (!x->ops->dot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not suppport local dots");
+  if (!x->ops->dot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not support local dots");
   ierr = PetscLogEventBegin(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
   ierr = (*x->ops->dot_local)(x,y,sr->lvalues+sr->numopsbegin++);CHKERRQ(ierr);
   ierr = PetscLogEventEnd(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
@@ -440,7 +438,7 @@ PetscErrorCode  VecTDotBegin(Vec x,Vec y,PetscScalar *result)
   }
   sr->reducetype[sr->numopsbegin] = PETSC_SR_REDUCE_SUM;
   sr->invecs[sr->numopsbegin]     = (void*)x;
-  if (!x->ops->tdot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not suppport local dots");
+  if (!x->ops->tdot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not support local dots");
   ierr = PetscLogEventBegin(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
   ierr = (*x->ops->tdot_local)(x,y,sr->lvalues+sr->numopsbegin++);CHKERRQ(ierr);
   ierr = PetscLogEventEnd(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
@@ -530,7 +528,7 @@ PetscErrorCode  VecNormBegin(Vec x,NormType ntype,PetscReal *result)
    VecNormEnd - Ends a split phase norm computation.
 
    Input Parameters:
-+  x - the first vector 
++  x - the first vector
 .  ntype - norm type, one of NORM_1, NORM_2, NORM_MAX, NORM_1_AND_2
 -  result - where the result will go
 
@@ -551,7 +549,7 @@ PetscErrorCode  VecNormEnd(Vec x,NormType ntype,PetscReal *result)
   MPI_Comm            comm;
 
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(x,VEC_CLASSID,1);  
+  PetscValidHeaderSpecific(x,VEC_CLASSID,1);
   ierr = PetscObjectGetComm((PetscObject)x,&comm);CHKERRQ(ierr);
   ierr = PetscSplitReductionGet(comm,&sr);CHKERRQ(ierr);
   ierr = PetscSplitReductionEnd(sr);CHKERRQ(ierr);
@@ -622,7 +620,7 @@ PetscErrorCode  VecMDotBegin(Vec x,PetscInt nv,const Vec y[],PetscScalar result[
     sr->reducetype[sr->numopsbegin+i] = PETSC_SR_REDUCE_SUM;
     sr->invecs[sr->numopsbegin+i]     = (void*)x;
   }
-  if (!x->ops->mdot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not suppport local mdots");
+  if (!x->ops->mdot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not support local mdots");
   ierr = PetscLogEventBegin(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
   ierr = (*x->ops->mdot_local)(x,nv,y,sr->lvalues+sr->numopsbegin);CHKERRQ(ierr);
   ierr = PetscLogEventEnd(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
@@ -714,7 +712,7 @@ PetscErrorCode  VecMTDotBegin(Vec x,PetscInt nv,const Vec y[],PetscScalar result
     sr->reducetype[sr->numopsbegin+i] = PETSC_SR_REDUCE_SUM;
     sr->invecs[sr->numopsbegin+i]     = (void*)x;
   }
-  if (!x->ops->mtdot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not suppport local mdots");
+  if (!x->ops->mtdot_local) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Vector does not support local mdots");
   ierr = PetscLogEventBegin(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
   ierr = (*x->ops->mdot_local)(x,nv,y,sr->lvalues+sr->numopsbegin);CHKERRQ(ierr);
   ierr = PetscLogEventEnd(VEC_ReduceArithmetic,0,0,0,0);CHKERRQ(ierr);
@@ -730,7 +728,7 @@ PetscErrorCode  VecMTDotBegin(Vec x,PetscInt nv,const Vec y[],PetscScalar result
 .  nv - number of vectors
 -  y - array of  vectors (can be NULL)
 
-   Output Parameters
+   Output Parameters:
 .  result - where the result will go
 
    Level: advanced

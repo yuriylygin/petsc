@@ -11,7 +11,7 @@
 /*
    Contains the list of registered PetscDraw routines
 */
-PetscFunctionList PetscDrawList = 0;
+PetscFunctionList PetscDrawList = NULL;
 
 /*@C
    PetscDrawView - Prints the PetscDraw data structure.
@@ -77,7 +77,7 @@ PetscErrorCode  PetscDrawView(PetscDraw indraw,PetscViewer viewer)
     PetscMPIInt rank;
 
     ierr = PetscObjectName((PetscObject)indraw);CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);CHKERRMPI(ierr);
     if (!((PetscObject)indraw)->amsmem && !rank) {
       ierr = PetscObjectViewSAWs((PetscObject)indraw,viewer);CHKERRQ(ierr);
     }
@@ -136,7 +136,7 @@ PetscErrorCode  PetscDrawViewFromOptions(PetscDraw A,PetscObject obj,const char 
           PetscDrawOpenX(), PetscDrawOpenImage(), PetscDrawIsNull(), PetscDrawGetPopup(), PetscDrawCheckResizedWindow(), PetscDrawResizeWindow(),
           PetscDrawGetWindowSize(), PetscDrawLine(), PetscDrawArrow(), PetscDrawLineSetWidth(), PetscDrawLineGetWidth(), PetscDrawMarker(),
           PetscDrawPoint(), PetscDrawRectangle(), PetscDrawTriangle(), PetscDrawEllipse(), PetscDrawString(), PetscDrawStringCentered(),
-          PetscDrawStringBoxed(), PetscDrawStringBoxed(), PetscDrawStringVertical(), PetscDrawSetViewPort(), PetscDrawGetViewPort(),
+          PetscDrawStringBoxed(), PetscDrawStringVertical(), PetscDrawSetViewPort(), PetscDrawGetViewPort(),
           PetscDrawSplitViewPort(), PetscDrawSetTitle(), PetscDrawAppendTitle(), PetscDrawGetTitle(), PetscDrawSetPause(), PetscDrawGetPause(),
           PetscDrawPause(), PetscDrawSetDoubleBuffer(), PetscDrawClear(), PetscDrawFlush(), PetscDrawGetSingleton(), PetscDrawGetMouseButton(),
           PetscDrawZoom(), PetscDrawGetBoundingBox()
@@ -151,7 +151,7 @@ PetscErrorCode  PetscDrawCreate(MPI_Comm comm,const char display[],const char ti
 
   PetscFunctionBegin;
   ierr = PetscDrawInitializePackage();CHKERRQ(ierr);
-  *indraw = 0;
+  *indraw = NULL;
   ierr = PetscHeaderCreate(draw,PETSC_DRAW_CLASSID,"Draw","Graphics","Draw",comm,PetscDrawDestroy,PetscDrawView);CHKERRQ(ierr);
 
   draw->data    = NULL;

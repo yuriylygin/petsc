@@ -1,5 +1,6 @@
 # -*- mode: makefile -*-
 #
+
 chk_petscdir:
 	@mypwd=`pwd`; cd ${PETSC_DIR} 2>&1 > /dev/null; true_PETSC_DIR=`pwd`; cd $${mypwd} 2>&1 >/dev/null; \
         newpwd=`echo $${mypwd} | sed "s+$${true_PETSC_DIR}+DUMMY+g"`;\
@@ -39,8 +40,14 @@ gnumake:
 	+@echo "make gnumake is deprecated, use make libs"
 	+@make libs
 
-libs:
-	+@cd ${PETSC_DIR} && MAKEFLAGS="-j$(MAKE_NP) -l$(MAKE_LOAD) $(MAKEFLAGS)" ${OMAKE_PRINTDIR} -f gmakefile ${MAKE_PAR_OUT_FLG} V=${V}
+${PETSC_DIR}/${PETSC_ARCH}/lib/petsc/conf/files:
+	@touch -t 197102020000 ${PETSC_DIR}/${PETSC_ARCH}/lib/petsc/conf/files
+
+${PETSC_DIR}/${PETSC_ARCH}/tests/testfiles:
+	@${MKDIR} -p ${PETSC_DIR}/${PETSC_ARCH}/tests && touch -t 197102020000 ${PETSC_DIR}/${PETSC_ARCH}/tests/testfiles
+
+libs: ${PETSC_DIR}/${PETSC_ARCH}/lib/petsc/conf/files ${PETSC_DIR}/${PETSC_ARCH}/tests/testfiles
+	+@cd ${PETSC_DIR} && MAKEFLAGS="-j$(MAKE_NP) -l$(MAKE_LOAD) $(MAKEFLAGS)" ${OMAKE_PRINTDIR} -f gmakefile ${MAKE_PAR_OUT_FLG} V=${V} libs
 
 # Does nothing; needed for some rules that require actions.
 foo:
@@ -127,6 +134,15 @@ tree_basic: ${ACTION}
 	PETSC_ARCH=${PETSC_ARCH}  LOC=${LOC}) ;fi; \
 	done
 
+#This target goes through all the source directories that contains a makefile
+alltree_src: ${ACTION}
+	-@DIRS=`ls | sed -e s'?tutorials??'g -e s'?tests??g'  -e s'?docs??'g -e s'?include??'g`; \
+	for dir in $$DIRS foo ; do if [ -f $$dir/makefile ]; then \
+	(cd $$dir ; echo ${ACTION} in: `pwd`; \
+	${OMAKE}  alltree_src ACTION=${ACTION}  \
+	PETSC_ARCH=${PETSC_ARCH} LOC=${LOC} ) ;fi; \
+	done
+
 #This target goes through all the dirs that contains a makefile
 alltree_makefile: ${ACTION}
 	-@DIRS=`ls`; \
@@ -201,7 +217,7 @@ getautoconfargs:
 #
 #
 
-.SUFFIXES: .F  .F90 .f90 ${SUFFIXES} .PETSc .C .cc .cpp .cxx .r .rm .so .html .ad .m .tex .mtex .make  .fig .svg .eps .pdf .jpg .png .dvi .ps .F95 .f95 .fiat .cu
+.SUFFIXES: .F  .F90 .f90 ${SUFFIXES} .PETSc .C .cc .cpp .cxx .r .rm .so .html .ad .m .tex .mtex .make  .fig .svg .eps .pdf .jpg .png .dvi .ps .F95 .f95 .fiat .cu .kokkos.cxx
 
 #
 #
@@ -250,14 +266,14 @@ getautoconfargs:
 	fi
 
 .c.o:
-	-+@mypwd=`pwd`; newpwd=`echo $${mypwd} | sed "s+/examples/tutorials+DUMMY+g"`;\
+	-+@mypwd=`pwd`; newpwd=`echo $${mypwd} | sed "s+/tutorials+DUMMY+g"`;\
         if [ $${mypwd} != $${newpwd} ]; then \
 	  ${OMAKE}  PETSC_ARCH=${PETSC_ARCH}  chk_petscdir;\
         fi
 	${PETSC_COMPILE_SINGLE} `pwd`/$<
 
 .cpp.o .cxx.o .cc.o .C.o:
-	-+@mypwd=`pwd`; newpwd=`echo $${mypwd} | sed "s+/examples/tutorials+DUMMY+g"`;\
+	-+@mypwd=`pwd`; newpwd=`echo $${mypwd} | sed "s+/tutorials+DUMMY+g"`;\
         if [ $${mypwd} != $${newpwd} ]; then \
 	  ${OMAKE}  PETSC_ARCH=${PETSC_ARCH}  chk_petscdir;\
         fi
@@ -268,7 +284,7 @@ getautoconfargs:
 	${PETSC_CUCOMPILE_SINGLE} `pwd`/$<
 
 .F.o .F90.o .F95.o:
-	${PETSC_FCOMPILE} -o $@ $<
+	${PETSC_FCOMPILE_SINGLE} `pwd`/$<
 
 .f.o .f90.o .f95.o:
 	${FC} -c ${FC_FLAGS} ${FFLAGS} -o $@ $<
@@ -278,7 +294,7 @@ getautoconfargs:
 .cpp.rm .cxx.rm .cc.rm .C.rm .F.rm .F90.rm .f.rm .c.rm .cu.rm:
 	-@${RM} $* *.o $*.mon.* gmon.out mon.out
 	-@${RM} *.exe *.ilk *.pdb *.tds
-.cu.PETSc .c.PETSc .cxx.PETSc:
+.cu.PETSc .kokkos.cxx.PETSc .c.PETSc .cxx.PETSc:
 	-+@${OMAKE}  PETSC_ARCH=${PETSC_ARCH}  $* > trashz 2>&1
 	-@grep -v clog trashz | grep -v "information sections" | \
           grep -v "warning C4003: not enough actual parameters for macro 'PETSC_PASTE3_" | \
@@ -321,6 +337,7 @@ getautoconfargs:
           grep -v "may result in errors or" | \
           grep -v "is deprecated" | \
           grep -v "Werror=format-security" | \
+          grep -v " -Werror " | \
 	  egrep -i '(Error|warning|Can|Unresolved)' >> /dev/null;\
 	  if [ "$$?" != 1 ]; then \
           printf ${PETSC_TEXT_HILIGHT}"*******************Error detected during compile or link!*******************\n";\
@@ -367,6 +384,7 @@ getautoconfargs:
           grep -v "IPO Error: unresolved" | \
           grep -v "warning multiple definitions of symbol _matdensegetarray_" | \
           grep -v "Werror=format-security" | \
+          grep -v " -Werror " | \
 	  egrep -i '(Error|warning|Can|Unresolved)'  >> /dev/null ; \
 	  if [ "$$?" != 1 ]; then \
           printf ${PETSC_TEXT_HILIGHT}"*******************Error detected during compile or link!*******************\n";\
@@ -420,8 +438,8 @@ chk_manualpage_dir:
 manualpages_buildcite: chk_manualpage_dir
 	@-if [ "${MANSEC}" != "" ] ; then \
           if [ "${SUBMANSEC}" = "" ] ; then LMANSEC=${MANSEC}; else LMANSEC=${SUBMANSEC}; fi; \
-          DOCTEXT_PATH=${PETSC_DIR}/src/docs/tex/doctext; export DOCTEXT_PATH; \
-	  TEXTFILTER_PATH=${PETSC_DIR}/src/docs/tex/doctext; export TEXTFILTER_PATH; \
+          DOCTEXT_PATH=${PETSC_DIR}/src/docs/doctext; export DOCTEXT_PATH; \
+	  TEXTFILTER_PATH=${PETSC_DIR}/src/docs/doctext; export TEXTFILTER_PATH; \
           ${DOCTEXT} -html -indexdir ../$${LMANSEC} \
 		-index ${LOC}/docs/manualpages/manualpages.cit \
 		-mpath ${LOC}/docs/manualpages/$${LMANSEC} ${SOURCED};  fi
@@ -430,10 +448,10 @@ manualpages_buildcite: chk_manualpage_dir
 manualpages:
 	-@if [ "${MANSEC}" != "" ] ; then \
           if [ "${SUBMANSEC}" = "" ] ; then LMANSEC=${MANSEC}; else LMANSEC=${SUBMANSEC}; fi; \
-          DOCTEXT_PATH=${PETSC_DIR}/src/docs/tex/doctext; export DOCTEXT_PATH; \
+          DOCTEXT_PATH=${PETSC_DIR}/src/docs/doctext; export DOCTEXT_PATH; \
 	  ${DOCTEXT} -html \
 		-mpath ${LOC}/docs/manualpages/$${LMANSEC} -heading PETSc \
-		-defn ${PETSC_DIR}/src/docs/tex/doctext/html.def \
+		-defn ${PETSC_DIR}/src/docs/doctext/html.def \
 		-locdir ${LOCDIR} -mapref ${LOC}/docs/manualpages/manualpages.cit ${SOURCED};\
 		chmod -f g+w ${LOC}/docs/manualpages/$${LMANSEC}/* ; fi
 #
@@ -494,29 +512,30 @@ exampleconcepts:
 #
 # To find functions implementing methods, we use git grep to look for
 # well-formed PETSc functions
-# - with a single underscore following the item's name,
+# - with names containing a single underscore
 # - in files of appropriate types (.cu .c .cxx .h),
 # - in paths including "/impls/",
 # - excluding any line with a semicolon (to avoid matching prototypes), and
-# - excluding any line including "_Private"
-# and then process implsFunc.txt to generate HTML.
+# - excluding any line including "_Private",
+# storing potential matches in implsFuncAll.txt.
 #
-# Efficiency note: this runs git grep for each man page. It may be more efficient
-#  to run it once for all possible implementation functions and store the results,
-#  sorted, in a temporary file.
+# For each man page we then grep in this file for the item's name followed by
+# a single underscore and process the resulting implsFunc.txt to generate HTML.
 #
 # To find class implementations, we populate implsClassAll.txt with candidates
 # - of the form "struct _p_itemName {",  and
 # - not containing a semicolon
-# and then match for particular values of itemName, generating implsClass.txt,
+# and then grep for particular values of itemName, generating implsClass.txt,
 # which is processed to generate HTML.
 #
 manimplementations:
-	-@git grep "struct\s\+_p_[^\s]\+.*{" -- *.cu *.c *.h *.cxx | grep -v ";" | grep -v "/examples/" > implsClassAll.txt ; \
-  for i in docs/manualpages/*/*.html; do \
+	-@git grep "struct\s\+_p_[^\s]\+.*{" -- *.cu *.c *.h *.cxx | grep -v -e ";" -e "/tests/" -e "/tutorials/" > implsClassAll.txt ; \
+  git grep -n "^\(static \)\?\(PETSC_EXTERN \)\?\(PETSC_INTERN \)\?\(extern \)\?PetscErrorCode \+[^_ ]\+_[^_ ]\+(" -- '*/impls/*.c' '*/impls/*.cu' '*/impls/*.cxx' '*/impls/*.h' | grep -v -e ";" -e "_[Pp]rivate" > implsFuncAll.txt ; \
+  for i in ${LOC}/docs/manualpages/*/*.html foo; do \
+       if [ "$$i" != "foo" ] ; then \
           printf "manimplementations in: $$i\n"; \
           itemName=`basename $$i .html`; \
-          git grep -n "^\(static \)\?\(PETSC_EXTERN \)\?\(PETSC_INTERN \)\?\(extern \)\?PetscErrorCode\s\+$${itemName}_.*(" -- */impls/*.c */impls/*.cu */impls/*.cxx */impls/*.h | grep -v ";" | grep -v "_Private" > implsFunc.txt ; \
+          grep "\s$${itemName}_" implsFuncAll.txt > implsFunc.txt ; \
           grep "_p_$${itemName}\b" implsClassAll.txt > implsClass.txt ; \
           if [ -s implsFunc.txt ] || [ -s implsClass.txt ] ; then \
             printf "<P><H3><FONT COLOR=\"CC3333\">Implementations</FONT></H3>" >> $$i; \
@@ -534,8 +553,10 @@ manimplementations:
             ${RM} tmp ; \
           fi ; \
           ${RM} implsFunc.txt implsClass.txt; \
+       fi ; \
   done ; \
-  ${RM} implsClassAll.txt
+  ${RM} implsClassAll.txt implsFuncAll.txt
+
 
 getexlist:
 	-@${PETSC_DIR}/lib/petsc/bin/maint/getexlist -locdir ${LOCDIR} -byfile -destdir ${LOC}/docs/manualpages/concepts/ ${EXAMPLESC} ${EXAMPLESF}
@@ -548,6 +569,19 @@ checkmakefilelist:
 	ls makefile *.{c,cxx,cu,F,F90,h,h90,m} 2>/dev/null | sort | uniq > /tmp/$$USER.$$.ls; \
 	${DIFF} /tmp/$$USER.$$.make  /tmp/$$USER.$$.ls; \
 	${RM}  /tmp/$$USER.$$.make  /tmp/$$USER.$$.ls
+
+simplehtml: chk_c2html
+	-@ROOT=`echo ${LOCDIR} | sed -e s?/[a-z]*?/..?g -e s?src/??g -e s?include/??g` ;\
+          loc=`pwd | sed -e s?\$${PETSC_DIR}/src?$${PETSC_DIR}/$${PETSC_ARCH}/obj?g -e s?/disks??g`;  \
+          for i in ${SOURCE} foo ; do\
+	    if [ -f $$i ]; then \
+              idir=`dirname $$i`;\
+              if [ ! -d $${loc}/$${idir} ]; then ${MKDIR} -p $${loc}/$${idir}; fi ; \
+              ${RM} $${loc}/$$i.html; \
+              sed -e "s/CHKERRMPI(ierr);//g" -e "s/CHKERRQ(ierr);//g" -e "s/PetscFunctionReturn(0)/return(0)/g" -e "s/ierr [ ]*= //g" -e "s/PETSC[A-Z]*_DLLEXPORT//g" $$i | ${C2HTML} -n | \
+              awk '{ sub(/<pre width="80">/,"<pre width=\"80\">\n"); print }' > $${loc}/$$i.html ; \
+	    fi; \
+         done
 
 html: chk_c2html
 	-@sed -e s?man+../?man+ROOT/docs/manualpages/? ${LOC}/docs/manualpages/manualpages.cit > /tmp/$$USER.htmlmap
@@ -568,8 +602,8 @@ html: chk_c2html
               fi;\
               ${RM} $${loc}/$$i.html; \
               echo "<center><a href=\"$${iroot}\">Actual source code: $${iroot}</a></center><br>" > $${loc}/$$i.html; \
-              sed -e "s/CHKERRQ(ierr);//g" -e "s/PetscFunctionReturn(0)/return(0)/g"  -e "s/ierr [ ]*= //g"  -e "s/PETSC[A-Z]*_DLLEXPORT//g" $$i | ${C2HTML} -n  | \
-              awk '{ sub(/<pre width="80">/,"<pre width=\"80\">\n"); print }'  | ${PETSC_DIR}/lib/petsc/bin/maint/fixinclude $$i $${PETSC_DIR} | \
+              sed -e "s/CHKERRMPI(ierr);//g" -e "s/CHKERRQ(ierr);//g" -e "s/PetscFunctionReturn(0)/return(0)/g" -e "s/ierr [ ]*= //g" -e "s/PETSC[A-Z]*_DLLEXPORT//g" $$i | ${C2HTML} -n | \
+              awk '{ sub(/<pre width="80">/,"<pre width=\"80\">\n"); print }' | ${PYTHON} ${PETSC_DIR}/lib/petsc/bin/maint/fixinclude.py $$i $${PETSC_DIR} | \
               egrep -v '(PetscValid|PetscFunctionBegin|PetscCheck|PetscErrorCode ierr;|#if !defined\(__|#define __|#undef __|EXTERN_C )' | \
               ${MAPNAMES} -map /tmp/$$USER.htmlmap -inhtml | sed -e s?ROOT?$${IROOT}?g >> $${loc}/$$i.html ; \
 	    fi; \
@@ -622,78 +656,80 @@ cleangcov:
 #----------------------------------------------------------------------------------
 checkbadPetscFunctionBegin:
 	-@if [ "${SOURCED}" != "" ] ; then \
-	${OMAKE}  PETSC_ARCH=${PETSC_ARCH}  \
+	${OMAKE} PETSC_ARCH=${PETSC_ARCH} \
 	checkbadPetscFunctionBegin_private ; fi
 
-checkbadFileHeader:
-	-@for filename in ${SOURCEALL} makefile ${EXAMPLESC} ${EXAMPLESF}; do \
-	a=`grep 'Id:' $$filename | wc -l`; \
-	if [ $$a -ne 1 ] ; then \
-	echo "$$filename: missing RCS file header" ; \
-	fi; \
-	done
-
+GITSRC = '*.[chF]' '*.F90' '*.cpp' '*.cxx' '*.cu' ${GITSRCEXCL}
+GITSRCEXCL = \
+':!include/*/khash.h' \
+':!src/sys/yaml/*'
 checkbadSource:
 	-@${RM} -f checkbadSource.out
 	-@echo "Tabs in file -----------------------------------------" > checkbadSource.out
-	-@git --no-pager grep -l -P  '\t'  -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
+	-@git --no-pager grep -n -P '\t' -- ${GITSRC} >> checkbadSource.out;true
 	-@echo "White space at end of line ---------------------------" >> checkbadSource.out
-	-@git --no-pager grep -l -P ' $$' -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
-#	-@echo "Space after ( ----------------------------------------" >> checkbadSource.out
-#	-@git --no-pager grep -l -P '\( ' -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
+	-@git --no-pager grep -n -P ' $$' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "Space after ( ----------------------------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P '\( ' -- ${GITSRC} | grep PetscErrorCode >> checkbadSource.out;true
+	-@git --no-pager grep -n -P 'if \( ' -- ${GITSRC} >> checkbadSource.out;true
+	-@git --no-pager grep -n -P 'for \( ' -- ${GITSRC} >> checkbadSource.out;true
+	-@git --no-pager grep -n -P 'while \( ' -- ${GITSRC} >> checkbadSource.out;true
 	-@echo "Space before ) ---------------------------------------" >> checkbadSource.out
-	-@git --no-pager grep -l -P ' \)' -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
-	-@echo "Space before CHKERRQ ---------------------------------" >> checkbadSource.out
-	-@git --no-pager grep -l -P '; CHKERRQ' -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
-	-@echo "No space after if or for -----------------------------" >> checkbadSource.out
-	-@git --no-pager grep -l -P -e 'for\(' -e 'if\(' -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
-	-@echo "DOS file (with DOS newlines)--------------------------" >> checkbadSource.out
-	-@git --no-pager grep -l -P '\r' -- '*.[chF]' '*.F90' '*.cxx' >> checkbadSource.out;true
-	-@a=`cat checkbadSource.out | wc -l`; let "l=$$a-6" ;\
+	-@git --no-pager grep -n -P ' \)' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "Space before CHKERR(Q|MPI|CUDA|CUBLAS|CUSPARSE) ------" >> checkbadSource.out
+	-@git --no-pager grep -n -P '; CHKERR(Q|MPI|CUDA|CUBLAS|CUSPARSE)\(' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "No space after if, for or while ----------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P -e '[^_]for\(' -e '[^_]if\(' -e 'while\(' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "Two ;; -----------------------------------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P -e ';;' -- ${GITSRC} | grep -v ' for (' >> checkbadSource.out;true
+	-@echo "CHKERRQ for an MPI error code ------------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P -e '= MPI[U]*_\w*\(.*CHKERRQ' -- ${GITSRC} | grep -v MPIU_File >> checkbadSource.out;true
+	-@echo "Missing if (ierr) return ierr; -----------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P -e 'ierr = PetscInitialize\(' -- '*.[ch]' '*.cpp' '*.cxx' '*.cu' | grep -v 'if (ierr) return ierr;' | egrep "(test|tutorial)" >> checkbadSource.out;true
+	-@echo "DOS file (with DOS newlines) -------------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P '\r' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "{ before SETERRQ -------------------------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P '{SETERRQ' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "{ on the same line as a function definition ----------" >> checkbadSource.out
+	-@git --no-pager grep -n -P -e 'PetscErrorCode[ ]+[a-zA-Z0-9_-]+(.*) {$$' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "wrong usage of PetscDefined() ------------------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P 'PetscDefined.PETSC' -- ${GITSRC} >> checkbadSource.out;true
+	-@echo "SETERRQ() without defined error code -----------------" >> checkbadSource.out
+	-@git --no-pager grep -n -P 'SETERRQ\(' -- ${GITSRC} | grep -v PETSC_ERR  | grep " if " | grep -v flow.c >> checkbadSource.out;true
+#	-@echo "Missing CHKERRQ --------------------------" >> checkbadSource.out
+#	-@git --no-pager grep -P 'ierr = ' -- '*.[ch]' '*.cxx' | grep ');' | egrep -v '(PetscFinalize|PetscInitialize|sys|benchmark|interfaces|fun3d|ftn-custom|f90-custom|CHK)' >> checkbadSource.out;true
+	@a=`cat checkbadSource.out | wc -l`; l=`expr $$a - 14` ;\
          if [ $$l -gt 0 ] ; then \
            echo $$l " files with errors detected in source code formatting" ;\
            cat checkbadSource.out ;\
+         fi;\
+         test ! $$l -gt 0
+	-@git --no-pager grep -P -n "[\x00-\x08\x0E-\x1F\x80-\xFF]" -- ${GITSRC} > badSourceChar.out;true
+	-@w=`cat badSourceChar.out | wc -l`;\
+         if [ $$w -gt 0 ] ; then \
+           echo "Source files with non-ASCII characters ----------------" ;\
+           cat badSourceChar.out ;\
          fi
+	@test ! -s badSourceChar.out
 
-checkTestCoverage:
-	-@for filename in ex*.c; do \
-	  if test -f $$filename; then \
-	    if ! grep run`basename $$filename .c`\: makefile 2>&1 > /dev/null; then \
-	      echo "Missing run target for `pwd`/$$filename"; \
-	    elif ! grep run`basename $$filename .c`\  makefile 2>&1 > /dev/null; then \
-	      echo "Missing test for `pwd`/$$filename"; \
-	    fi; \
-	  fi; \
-	done
-	-@for filename in ex*.f; do \
-	  if test -f $$filename; then \
-	    if ! grep run`basename $$filename .f`\: makefile 2>&1 > /dev/null; then \
-	      echo "Missing run target for `pwd`/$$filename"; \
-	    elif ! grep run`basename $$filename .f`\  makefile 2>&1 > /dev/null; then \
-	      echo "Missing test for `pwd`/$$filename"; \
-	    fi; \
-	  fi; \
-	done
-	-@for filename in ex*.F; do \
-	  if test -f $$filename; then \
-	    if ! grep run`basename $$filename .F`\: makefile 2>&1 > /dev/null; then \
-	      echo "Missing run target for `pwd`/$$filename"; \
-	    elif ! grep run`basename $$filename .F`\  makefile 2>&1 > /dev/null; then \
-	      echo "Missing test for `pwd`/$$filename"; \
-	    fi; \
-	  fi; \
-	done
-	-@for filename in ex*.f90; do \
-	  if test -f $$filename; then \
-	    if ! grep run`basename $$filename .f90`\: makefile 2>&1 > /dev/null; then \
-	      echo "Missing run target for `pwd`/$$filename"; \
-	    elif ! grep run`basename $$filename .f90`\  makefile 2>&1 > /dev/null; then \
-	      echo "Missing test for `pwd`/$$filename"; \
-	    fi; \
-	  fi; \
-	done
+check_petsc4py_rst:
+	@${RM} -f petsc4py_rst.log
+	@echo "Checking src/binding/petsc4py/DESCRIPTION.rst"
+	@rst2html src/binding/petsc4py/DESCRIPTION.rst > /dev/null 2> petsc4py_rst.log
+	@if test -s petsc4py_rst.log; then cat petsc4py_rst.log; exit 1; fi
 
-#  Lists all the URLs in the PETSc repository that are unaccessable, nonexistent, or permanently moved (301)
+# TODO: checkTestCoverage: that makes sure every tutorial test has at least one test listed in the file, perhaps handled by gmakegentest.py
+# TODO: check for PetscBeginFunctionUser in non-example source
+# TODO: check for __ at start of #define or symbol
+# TODO: checking for missing manual pages
+# TODO: check for incorrect %d
+# TODO: check for double blank lines
+# TODO: check for ill-formed manual pages
+# TODO: check for { on line after for
+# TODO: check for } then else on following line
+# TODO: check for } else { with SETERRQ on following line or if () { with SETERRQ on following line
+
+#  Lists all the URLs in the PETSc repository that are unaccessible, nonexistent, or permanently moved (301)
 #  REPLACE=1 locations marked as permanently moved (301) are replaced in the repository
 #  This code is fragile; always check the changes after a use of REPLACE=1 before commiting the changes
 #
@@ -704,30 +740,30 @@ checkTestCoverage:
 #    The code recursively follows the permanently moved (301) redirections until it reaches the final URL
 #    For DropBox we need to check the validity of the new URL but do not want to return to user the internal "raw" URL
 checkbadURLS:
-	-@x=`git grep "http[s]*://" -- '*.[chF]' '*.html' '*.cxx' '*.F90' '*.py' '*.tex' | egrep -v "(config/packages|HandsOnExercises)" | tr '[[:blank:]]' '\n' | grep 'http[s]*://' |  sed 's!.*(\(http[s]*://[-a-zA-Z0-9_./()?=&+%~]*\))!\1!g' | sed 's!.*\(http[s]*://[-a-zA-Z0-9_./()?=&+%~]*\).*!\1!g' | sed 's/\.$$//g' | sort | uniq| awk '{ print length, $$0 }' | sort -r -n -s | cut -d" " -f2` ;  \
+	-@x=`git grep "http[s]*://" -- '*.[chF]' '*.html' '*.cpp' '*.cxx' '*.cu' '*.F90' '*.py' '*.tex' | egrep -v "(config/packages|HandsOnExercises)" | tr '[[:blank:]]' '\n' | grep 'http[s]*://' | sed 's!.*(\(http[s]*://[-a-zA-Z0-9_./()?=&+%~]*\))!\1!g' | sed 's!.*\(http[s]*://[-a-zA-Z0-9_./()?=&+%~]*\).*!\1!g' | sed 's/\.$$//g' | sort | uniq| awk '{ print length, $$0 }' | sort -r -n -s | cut -d" " -f2` ; \
         for i in $$x; do \
           url=$$i; \
           msg=''; \
           while [[ "$${msg}D" == "D" ]] ; do \
-            y1=`curl  --connect-timeout 5 --head --silent $${url} | head -n 1`; \
+            y1=`curl --connect-timeout 5 --head --silent $${url} | head -n 1`; \
             y2=`echo $${y1} | grep ' 4[0-9]* '`; \
             y3=`echo $${y1} | grep ' 301 '`; \
-            if [[ "$${y1}D" == "D" ]] ; then  \
+            if [[ "$${y1}D" == "D" ]] ; then \
               msg="Unable to reach site" ; \
-            elif [[ "$${y2}D" != "D" ]] ; then  \
+            elif [[ "$${y2}D" != "D" ]] ; then \
               msg=$${y1} ; \
-            elif [[ "$${y3}D" != "D" ]] ; then  \
+            elif [[ "$${y3}D" != "D" ]] ; then \
               l=`curl --connect-timeout 5 --head --silent $${url} | grep ocation | sed 's/.*ocation:[[:blank:]]\(.*\)/\1/g' | tr -d '\r'` ; \
               w=`echo $$l | grep 'http'` ; \
-              if [[ "$${w}D" != "D" ]] ; then  \
+              if [[ "$${w}D" != "D" ]] ; then \
                 url=$$l ; \
-              else  \
+              else \
                 ws=`echo $${url} | sed 's!\(http[s]*://[-a-zA-Z0-9_.]*\)/.*!\1!g'` ; \
                 dp=`echo $${ws}$${l} | grep "dropbox.com/s/raw"` ; \
-                if [[ "$${dp}D" != "D" ]] ; then  \
-                  b=`curl  --connect-timeout 5 --head --silent $${ws}$$l | head -n 1` ; \
+                if [[ "$${dp}D" != "D" ]] ; then \
+                  b=`curl --connect-timeout 5 --head --silent $${ws}$$l | head -n 1` ; \
                   c=`echo $${b} | egrep "( 2[0-9]* | 302 )"` ; \
-                  if [[ "$${c}D" == "D" ]] ; then  \
+                  if [[ "$${c}D" == "D" ]] ; then \
                     msg=`echo "dropbox file doesn't exist" $${c}` ; \
                   else \
                     break ; \
@@ -742,7 +778,7 @@ checkbadURLS:
           done;\
           if [[ "$${msg}D" == "D" && "$${url}" != "$$i" ]] ; then \
             echo "URL" $$i "has moved to valid final location:" $${url} ; \
-            if [[ "$${REPLACE}D" != "D" ]] ; then  \
+            if [[ "$${REPLACE}D" != "D" ]] ; then \
               git psed $$i $$l ;\
             fi; \
           elif [[ "$${msg}D" != "D" && "$${url}" != "$$i" ]] ; then \
@@ -761,7 +797,7 @@ sourcelist:
         done
 
 #
-#  Remove trailing blanks from source code
+# Remove trailing blanks from source code
 rmtrailingblanks:
 	@for i in ${SOURCEALL} ${EXAMPLESC} ${EXAMPLESF}; do \
 	  sed -i '' s"/[ ]*$$//"g $$i; \

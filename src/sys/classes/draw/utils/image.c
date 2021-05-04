@@ -38,9 +38,9 @@ PETSC_EXTERN PetscErrorCode PetscDrawImageSavePPM(const char filename[],unsigned
   ierr = PetscBinaryOpen(filename,FILE_MODE_WRITE,&fd);CHKERRQ(ierr);
   ierr = PetscSNPrintf(header,sizeof(header),"P6\n%d %d\n255\n\0",(int)w,(int)h);CHKERRQ(ierr);
   ierr = PetscStrlen(header,&hdrlen);CHKERRQ(ierr);
-  ierr = PetscBinaryWrite(fd,header,hdrlen,PETSC_CHAR,PETSC_FALSE);CHKERRQ(ierr);
+  ierr = PetscBinaryWrite(fd,header,hdrlen,PETSC_CHAR);CHKERRQ(ierr);
   /* write image data and close file */
-  ierr = PetscBinaryWrite(fd,rgb,3*w*h,PETSC_CHAR,PETSC_FALSE);CHKERRQ(ierr);
+  ierr = PetscBinaryWrite(fd,rgb,3*w*h,PETSC_CHAR);CHKERRQ(ierr);
   ierr = PetscBinaryClose(fd);CHKERRQ(ierr);
   if (palette) {ierr = PetscFree(rgb);CHKERRQ(ierr);}
   PetscFunctionReturn(0);
@@ -148,7 +148,7 @@ PETSC_EXTERN PetscErrorCode PetscDrawImageSaveGIF(const char filename[],unsigned
   ColorMapObject *GifCMap = NULL;
   GifFileType    *GifFile = NULL;
 # define         SETERRGIF(msg) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_LIB,msg", GIF file: %s",filename)
-# define         CHKERRGIF(msg) do {if (Error != GIF_OK) SETERRGIF(msg);} while(0)
+# define         CHKERRGIF(msg) do {if (Error != GIF_OK) SETERRGIF(msg);} while (0)
 
   PetscFunctionBegin;
   PetscValidCharPointer(filename,1);
@@ -341,14 +341,13 @@ PetscErrorCode PetscDrawImageCheckFormat(const char *ext[])
     *ext = PetscDrawImageSaveTable[0].extension;
     PetscFunctionReturn(0);
   }
-  /* check the extension mathes a supported format otherwise */
+  /* check the extension matches a supported format */
   PetscValidCharPointer(*ext,1);
   for (k=0; k<sizeof(PetscDrawImageSaveTable)/sizeof(PetscDrawImageSaveTable[0]); k++) {
     ierr = PetscStrcasecmp(*ext,PetscDrawImageSaveTable[k].extension,&match);CHKERRQ(ierr);
     if (match && PetscDrawImageSaveTable[k].SaveImage) PetscFunctionReturn(0);
   }
-  SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_SUP,"Image extension %s not supported, use .ppm",*ext);
-  PetscFunctionReturn(0);
+  SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_SUP,"Image extension %s not supported, use .ppm or see PetscDrawSetSave() for what ./configure option you may need",*ext);
 }
 
 PetscErrorCode PetscDrawImageSave(const char basename[],const char ext[],unsigned char palette[][3],unsigned int w,unsigned int h,const unsigned char pixels[])
@@ -374,7 +373,6 @@ PetscErrorCode PetscDrawImageSave(const char basename[],const char ext[],unsigne
     }
   }
   SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_SUP,"Image extension %s not supported, use .ppm",ext);
-  PetscFunctionReturn(0);
 }
 
 PetscErrorCode PetscDrawMovieCheckFormat(const char *ext[])

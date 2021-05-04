@@ -49,7 +49,7 @@ PetscErrorCode  ISEqual(IS is1,IS is2,PetscBool  *flg)
     PetscFunctionReturn(0);
   }
 
-  ierr = MPI_Comm_compare(PetscObjectComm((PetscObject)is1),PetscObjectComm((PetscObject)is2),&mflg);CHKERRQ(ierr);
+  ierr = MPI_Comm_compare(PetscObjectComm((PetscObject)is1),PetscObjectComm((PetscObject)is2),&mflg);CHKERRMPI(ierr);
   if (mflg != MPI_CONGRUENT && mflg != MPI_IDENT) {
     *flg = PETSC_FALSE;
     PetscFunctionReturn(0);
@@ -73,8 +73,8 @@ PetscErrorCode  ISEqual(IS is1,IS is2,PetscBool  *flg)
       ierr = PetscArraycpy(a1,ptr1,sz1);CHKERRQ(ierr);
       ierr = PetscArraycpy(a2,ptr2,sz2);CHKERRQ(ierr);
 
-      ierr = PetscSortInt(sz1,a1);CHKERRQ(ierr);
-      ierr = PetscSortInt(sz2,a2);CHKERRQ(ierr);
+      ierr = PetscIntSortSemiOrdered(sz1,a1);CHKERRQ(ierr);
+      ierr = PetscIntSortSemiOrdered(sz2,a2);CHKERRQ(ierr);
       ierr = PetscArraycmp(a1,a2,sz1,&flag);CHKERRQ(ierr);
 
       ierr = ISRestoreIndices(is1,&ptr1);CHKERRQ(ierr);
@@ -84,7 +84,7 @@ PetscErrorCode  ISEqual(IS is1,IS is2,PetscBool  *flg)
       ierr = PetscFree(a2);CHKERRQ(ierr);
     }
     ierr = PetscObjectGetComm((PetscObject)is1,&comm);CHKERRQ(ierr);
-    ierr = MPIU_Allreduce(&flag,flg,1,MPIU_BOOL,MPI_MIN,comm);CHKERRQ(ierr);
+    ierr = MPIU_Allreduce(&flag,flg,1,MPIU_BOOL,MPI_MIN,comm);CHKERRMPI(ierr);
   }
   PetscFunctionReturn(0);
 }
@@ -130,7 +130,7 @@ PetscErrorCode  ISEqualUnsorted(IS is1,IS is2,PetscBool  *flg)
     PetscFunctionReturn(0);
   }
 
-  ierr = MPI_Comm_compare(PetscObjectComm((PetscObject)is1),PetscObjectComm((PetscObject)is2),&mflg);CHKERRQ(ierr);
+  ierr = MPI_Comm_compare(PetscObjectComm((PetscObject)is1),PetscObjectComm((PetscObject)is2),&mflg);CHKERRMPI(ierr);
   if (mflg != MPI_CONGRUENT && mflg != MPI_IDENT) {
     *flg = PETSC_FALSE;
     PetscFunctionReturn(0);
@@ -154,7 +154,7 @@ PetscErrorCode  ISEqualUnsorted(IS is1,IS is2,PetscBool  *flg)
       ierr = ISRestoreIndices(is2,&ptr2);CHKERRQ(ierr);
     }
     ierr = PetscObjectGetComm((PetscObject)is1,&comm);CHKERRQ(ierr);
-    ierr = MPIU_Allreduce(&flag,flg,1,MPIU_BOOL,MPI_MIN,comm);CHKERRQ(ierr);
+    ierr = MPIU_Allreduce(&flag,flg,1,MPIU_BOOL,MPI_MIN,comm);CHKERRMPI(ierr);
   }
   PetscFunctionReturn(0);
 }

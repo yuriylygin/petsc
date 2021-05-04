@@ -22,7 +22,7 @@
 
    Input Parameters:
 +   comm - MPI communicator
-.   refresh token - obtained with PetscGoogleDriveAuthorize(), if NULL PETSc will first look for one in the options data 
+.   refresh token - obtained with PetscGoogleDriveAuthorize(), if NULL PETSc will first look for one in the options data
                     if not found it will call PetscGoogleDriveAuthorize()
 -   tokensize - size of the output string access_token
 
@@ -49,12 +49,12 @@ PetscErrorCode PetscGoogleDriveRefresh(MPI_Comm comm,const char refresh_token[],
   PetscBool      found;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank) {
     if (!refresh_token) {
       PetscBool set;
       ierr = PetscMalloc1(512,&refreshtoken);CHKERRQ(ierr);
-      ierr = PetscOptionsGetString(NULL,NULL,"-google_refresh_token",refreshtoken,512,&set);CHKERRQ(ierr);
+      ierr = PetscOptionsGetString(NULL,NULL,"-google_refresh_token",refreshtoken,sizeof(refreshtoken),&set);CHKERRQ(ierr);
       if (!set) {
         ierr = PetscGoogleDriveAuthorize(comm,access_token,refreshtoken,512*sizeof(char));CHKERRQ(ierr);
         ierr = PetscFree(refreshtoken);CHKERRQ(ierr);
@@ -131,17 +131,18 @@ PetscErrorCode PetscGoogleDriveUpload(MPI_Comm comm,const char access_token[],co
   struct stat    sb;
   size_t         len,blen,rd;
   FILE           *fd;
+  int            err;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank) {
     ierr = PetscStrcpy(head,"Authorization: Bearer ");CHKERRQ(ierr);
     ierr = PetscStrcat(head,access_token);CHKERRQ(ierr);
     ierr = PetscStrcat(head,"\r\n");CHKERRQ(ierr);
     ierr = PetscStrcat(head,"uploadType: multipart\r\n");CHKERRQ(ierr);
 
-    ierr = stat(filename,&sb);
-    if (ierr) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_FILE_OPEN,"Unable to stat file: %s",filename);
+    err = stat(filename,&sb);
+    if (err) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_FILE_OPEN,"Unable to stat file: %s",filename);
     len = 1024 + sb.st_size;
     ierr = PetscMalloc1(len,&body);CHKERRQ(ierr);
     ierr = PetscStrcpy(body,"--foo_bar_baz\r\n"
@@ -197,7 +198,7 @@ PetscErrorCode PetscGoogleDriveUpload(MPI_Comm comm,const char access_token[],co
    Notes:
     This call requires stdout and stdin access from process 0 on the MPI communicator
 
-   You can run src/sys/webclient/examples/tutorials/googleobtainrefreshtoken to get a refresh token and then in the future pass it to
+   You can run src/sys/webclient/tutorials/googleobtainrefreshtoken to get a refresh token and then in the future pass it to
    PETSc programs with -google_refresh_token XXX
 
    Level: intermediate
@@ -217,7 +218,7 @@ PetscErrorCode PetscGoogleDriveAuthorize(MPI_Comm comm,char access_token[],char 
   PetscBool      found;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank) {
     if (!isatty(fileno(PETSC_STDOUT))) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_USER,"Requires users input/output");
     ierr = PetscPrintf(comm,"Cut and paste the following into your browser:\n\n"
@@ -300,4 +301,3 @@ PetscErrorCode PetscURLShorten(const char url[],char shorturl[],size_t lenshortu
   if (!found) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_LIB,"Google drive did not return short URL");
   PetscFunctionReturn(0);
 }
-

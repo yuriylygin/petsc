@@ -195,7 +195,7 @@ PetscErrorCode MatPartitioningView_PTScotch(MatPartitioning part, PetscViewer vi
   MatPartitioning_PTScotch *scotch = (MatPartitioning_PTScotch*)part->data;
   PetscErrorCode           ierr;
   PetscBool                isascii;
-  const char               *str=0;
+  const char               *str=NULL;
 
   PetscFunctionBegin;
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&isascii);CHKERRQ(ierr);
@@ -251,8 +251,8 @@ static PetscErrorCode MatPartitioningApply_PTScotch_Private(MatPartitioning part
   PetscFunctionBegin;
   ierr = PetscObjectGetComm((PetscObject)part,&pcomm);CHKERRQ(ierr);
   /* Duplicate the communicator to be sure that PTSCOTCH attribute caching does not interfere with PETSc. */
-  ierr = MPI_Comm_dup(pcomm,&comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_dup(pcomm,&comm);CHKERRMPI(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   ierr = PetscObjectTypeCompare((PetscObject)mat,MATMPIADJ,&flg);CHKERRQ(ierr);
   if (!flg) {
     /* bs indicates if the converted matrix is "reduced" from the original and hence the
@@ -273,7 +273,7 @@ static PetscErrorCode MatPartitioningApply_PTScotch_Private(MatPartitioning part
     PetscInt    *sizes, *seps, log2size, subd, *level, base = 0;
     PetscMPIInt size;
 
-    ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+    ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
     log2size = PetscLog2Real(size);
     subd = PetscPowInt(2,log2size);
     if (subd != size) SETERRQ(comm,PETSC_ERR_SUP,"Only power of 2 communicator sizes");
@@ -322,7 +322,7 @@ static PetscErrorCode MatPartitioningApply_PTScotch_Private(MatPartitioning part
     vertlocnbr = mat->rmap->range[rank+1] - mat->rmap->range[rank];
     edgelocnbr = adj->i[vertlocnbr];
     veloloctab = part->vertex_weights;
-    edloloctab = adj->values;
+    edloloctab = part->use_edge_weights? adj->values:NULL;
 
     /* detect whether all vertices are located at the same process in original graph */
     for (p = 0; !mat->rmap->range[p+1] && p < nparts; ++p);
@@ -337,9 +337,7 @@ static PetscErrorCode MatPartitioningApply_PTScotch_Private(MatPartitioning part
       ierr = SCOTCH_dgraphBuild(&grafdat,0,vertlocnbr,vertlocnbr,adj->i,adj->i+1,veloloctab,
                                 NULL,edgelocnbr,edgelocnbr,adj->j,NULL,edloloctab);CHKERRQ(ierr);
 
-#if defined(PETSC_USE_DEBUG)
-      ierr = SCOTCH_dgraphCheck(&grafdat);CHKERRQ(ierr);
-#endif
+      if (PetscDefined(USE_DEBUG)) {ierr = SCOTCH_dgraphCheck(&grafdat);CHKERRQ(ierr);}
 
       ierr = SCOTCH_archInit(&archdat);CHKERRQ(ierr);
       ierr = SCOTCH_stratInit(&stradat);CHKERRQ(ierr);
@@ -364,9 +362,7 @@ static PetscErrorCode MatPartitioningApply_PTScotch_Private(MatPartitioning part
 
       ierr = SCOTCH_graphInit(&grafdat);CHKERRQ(ierr);
       ierr = SCOTCH_graphBuild(&grafdat,0,vertlocnbr,adj->i,adj->i+1,veloloctab,NULL,edgelocnbr,adj->j,edloloctab);CHKERRQ(ierr);
-#if defined(PETSC_USE_DEBUG)
-      ierr = SCOTCH_graphCheck(&grafdat);CHKERRQ(ierr);
-#endif
+      if (PetscDefined(USE_DEBUG)) {ierr = SCOTCH_graphCheck(&grafdat);CHKERRQ(ierr);}
       ierr = SCOTCH_stratInit(&stradat);CHKERRQ(ierr);
       ierr = SCOTCH_stratGraphMapBuild(&stradat,scotch->strategy,nparts,scotch->imbalance);CHKERRQ(ierr);
       if (velotab) {
@@ -384,7 +380,7 @@ static PetscErrorCode MatPartitioningApply_PTScotch_Private(MatPartitioning part
 
     ierr = PetscFree(velotab);CHKERRQ(ierr);
   }
-  ierr = MPI_Comm_free(&comm);CHKERRQ(ierr);
+  ierr = MPI_Comm_free(&comm);CHKERRMPI(ierr);
 
   if (bs > 1) {
     PetscInt *newlocals;

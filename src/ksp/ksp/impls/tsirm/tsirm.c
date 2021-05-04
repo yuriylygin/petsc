@@ -1,6 +1,6 @@
 
 
-#include <petsc/private/kspimpl.h>	/*I "petscksp.h" I*/
+#include <petsc/private/kspimpl.h>      /*I "petscksp.h" I*/
 
 typedef struct {
   PetscReal tol_ls;
@@ -215,9 +215,10 @@ PETSC_EXTERN PetscErrorCode KSPCreate_TSIRM(KSP ksp)
   ksp->ops->buildsolution  = KSPBuildSolutionDefault;
   ksp->ops->buildresidual  = KSPBuildResidualDefault;
   ksp->ops->setfromoptions = KSPSetFromOptions_TSIRM;
-  ksp->ops->view           = 0;
+  ksp->ops->view           = NULL;
 #if defined(PETSC_USE_COMPLEX)
   SETERRQ(PetscObjectComm((PetscObject)ksp),PETSC_ERR_SUP,"This is not supported for complex numbers");
-#endif
+#else
   PetscFunctionReturn(0);
+#endif
 }

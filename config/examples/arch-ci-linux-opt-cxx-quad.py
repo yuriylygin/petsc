@@ -10,10 +10,11 @@ configure_options = [
   'CXX=g++',
   'FC=gfortran',
   '--with-mpi-include=/usr/include/mpich',
-  '--with-mpi-lib=-L/usr/lib/x86_64-linux-gnu -lmpichf90 -lmpi',
+  '--with-mpi-lib=-L/usr/lib/x86_64-linux-gnu -lmpichfort -lmpi',
   '--download-f2cblaslapack=1',
   '--with-precision=__float128',
   '--with-clanguage=cxx',
+  '--with-mpi-f90module-visibility=0',
   ]
 
 if __name__ == '__main__':

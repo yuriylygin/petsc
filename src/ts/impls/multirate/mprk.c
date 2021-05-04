@@ -746,7 +746,7 @@ static PetscErrorCode TSStep_MPRK(TS ts)
         ierr = VecRestoreSubVector(YdotRHS[j],mprk->is_mediumbuffer,&YdotRHS_mediumbuffer[j]);CHKERRQ(ierr);
       }
     }
-    ierr = TSPostStage(ts,mprk->stage_time,i,Y); CHKERRQ(ierr);
+    ierr = TSPostStage(ts,mprk->stage_time,i,Y);CHKERRQ(ierr);
     /* compute the stage RHS by fast and slow tableau respectively */
     ierr = TSComputeRHSFunction(ts,t+h*csb[i],Y[i],YdotRHS[i]);CHKERRQ(ierr);
   }
@@ -1293,7 +1293,6 @@ static PetscErrorCode TSMPRKSetType_MPRK(TS ts,TSMPRKType mprktype)
     }
   }
   SETERRQ1(PetscObjectComm((PetscObject)ts),PETSC_ERR_ARG_UNKNOWN_TYPE,"Could not find '%s'",mprktype);
-  PetscFunctionReturn(0);
 }
 
 static PetscErrorCode TSGetStages_MPRK(TS ts,PetscInt *ns,Vec **Y)

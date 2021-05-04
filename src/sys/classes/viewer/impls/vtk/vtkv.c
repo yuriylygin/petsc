@@ -129,8 +129,8 @@ PetscErrorCode  PetscViewerFileSetName_VTK(PetscViewer viewer,const char name[])
     ierr = PetscStrcasecmp(name+len-4,".vtr",&isvtr);CHKERRQ(ierr);
   }
   if (isvtk) {
-    if (viewer->format == PETSC_VIEWER_DEFAULT) viewer->format = PETSC_VIEWER_ASCII_VTK;
-    if (viewer->format != PETSC_VIEWER_ASCII_VTK) SETERRQ2(PetscObjectComm((PetscObject)viewer),PETSC_ERR_ARG_INCOMP,"Cannot use file '%s' with format %s, should have '.vtk' extension",name,PetscViewerFormats[viewer->format]);
+    if (viewer->format == PETSC_VIEWER_DEFAULT) viewer->format = PETSC_VIEWER_ASCII_VTK_DEPRECATED;
+    if (viewer->format != PETSC_VIEWER_ASCII_VTK_DEPRECATED) SETERRQ2(PetscObjectComm((PetscObject)viewer),PETSC_ERR_ARG_INCOMP,"Cannot use file '%s' with format %s, should have '.vtk' extension",name,PetscViewerFormats[viewer->format]);
   } else if (isvts) {
     if (viewer->format == PETSC_VIEWER_DEFAULT) viewer->format = PETSC_VIEWER_VTK_VTS;
     if (viewer->format != PETSC_VIEWER_VTK_VTS) SETERRQ2(PetscObjectComm((PetscObject)viewer),PETSC_ERR_ARG_INCOMP,"Cannot use file '%s' with format %s, should have '.vts' extension",name,PetscViewerFormats[viewer->format]);
@@ -230,8 +230,8 @@ PETSC_EXTERN PetscErrorCode PetscViewerCreate_VTK(PetscViewer v)
   v->data         = (void*)vtk;
   v->ops->destroy = PetscViewerDestroy_VTK;
   v->ops->flush   = PetscViewerFlush_VTK;
-  vtk->btype      = (PetscFileMode) -1;
-  vtk->filename   = 0;
+  vtk->btype      = FILE_MODE_UNDEFINED;
+  vtk->filename   = NULL;
 
   ierr = PetscObjectComposeFunction((PetscObject)v,"PetscViewerFileSetName_C",PetscViewerFileSetName_VTK);CHKERRQ(ierr);
   ierr = PetscObjectComposeFunction((PetscObject)v,"PetscViewerFileGetName_C",PetscViewerFileGetName_VTK);CHKERRQ(ierr);
@@ -314,7 +314,7 @@ PetscErrorCode PetscViewerVTKFWrite(PetscViewer viewer,FILE *fp,const void *data
   PetscFunctionBegin;
   if (n < 0) SETERRQ1(PetscObjectComm((PetscObject)viewer),PETSC_ERR_ARG_OUTOFRANGE,"Trying to write a negative amount of data %D",n);
   if (!n) PetscFunctionReturn(0);
-  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)viewer),&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)viewer),&rank);CHKERRMPI(ierr);
   if (!rank) {
     size_t      count;
     PetscMPIInt dsize;
@@ -328,7 +328,7 @@ PetscErrorCode PetscViewerVTKFWrite(PetscViewer viewer,FILE *fp,const void *data
       vdtype = MPI_DOUBLE;
     }
 #endif
-    ierr  = MPI_Type_size(vdtype,&dsize);CHKERRQ(ierr);
+    ierr  = MPI_Type_size(vdtype,&dsize);CHKERRMPI(ierr);
     bytes = PetscVTKIntCast(dsize*n);
 
     count = fwrite(&bytes,sizeof(int),1,fp);

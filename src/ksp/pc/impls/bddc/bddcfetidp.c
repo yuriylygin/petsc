@@ -121,15 +121,13 @@ PetscErrorCode PCBDDCDestroyFETIDPPC(PC pc)
   PetscFunctionReturn(0);
 }
 
-PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
+PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx)
 {
   PetscErrorCode ierr;
   PC_IS          *pcis=(PC_IS*)fetidpmat_ctx->pc->data;
   PC_BDDC        *pcbddc=(PC_BDDC*)fetidpmat_ctx->pc->data;
   PCBDDCGraph    mat_graph=pcbddc->mat_graph;
-#if defined(PETSC_USE_DEBUG)
   Mat_IS         *matis  = (Mat_IS*)fetidpmat_ctx->pc->pmat->data;
-#endif
   MPI_Comm       comm;
   Mat            ScalingMat,BD1,BD2;
   Vec            fetidp_global;
@@ -157,8 +155,8 @@ PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
 
   PetscFunctionBegin;
   ierr = PetscObjectGetComm((PetscObject)(fetidpmat_ctx->pc),&comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
+  ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
 
   /* saddlepoint */
   nPl      = 0;
@@ -289,14 +287,14 @@ PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
   ierr = ISRenumber(subset,subset_mult,&fetidpmat_ctx->n_lambda,&subset_n);CHKERRQ(ierr);
   ierr = ISDestroy(&subset);CHKERRQ(ierr);
 
-#if defined(PETSC_USE_DEBUG)
-  ierr = VecSet(pcis->vec1_global,0.0);CHKERRQ(ierr);
-  ierr = VecScatterBegin(matis->rctx,pcis->vec1_N,pcis->vec1_global,ADD_VALUES,SCATTER_REVERSE);CHKERRQ(ierr);
-  ierr = VecScatterEnd(matis->rctx,pcis->vec1_N,pcis->vec1_global,ADD_VALUES,SCATTER_REVERSE);CHKERRQ(ierr);
-  ierr = VecSum(pcis->vec1_global,&scalar_value);CHKERRQ(ierr);
-  i = (PetscInt)PetscRealPart(scalar_value);
-  if (i != fetidpmat_ctx->n_lambda) SETERRQ2(PETSC_COMM_WORLD,PETSC_ERR_PLIB,"Global number of multipliers mismatch! (%D != %D)",fetidpmat_ctx->n_lambda,i);
-#endif
+  if (PetscDefined(USE_DEBUG)) {
+    ierr = VecSet(pcis->vec1_global,0.0);CHKERRQ(ierr);
+    ierr = VecScatterBegin(matis->rctx,pcis->vec1_N,pcis->vec1_global,ADD_VALUES,SCATTER_REVERSE);CHKERRQ(ierr);
+    ierr = VecScatterEnd(matis->rctx,pcis->vec1_N,pcis->vec1_global,ADD_VALUES,SCATTER_REVERSE);CHKERRQ(ierr);
+    ierr = VecSum(pcis->vec1_global,&scalar_value);CHKERRQ(ierr);
+    i = (PetscInt)PetscRealPart(scalar_value);
+    if (i != fetidpmat_ctx->n_lambda) SETERRQ2(PETSC_COMM_WORLD,PETSC_ERR_PLIB,"Global number of multipliers mismatch! (%D != %D)",fetidpmat_ctx->n_lambda,i);
+  }
 
   /* init data for scaling factors exchange */
   if (!pcbddc->use_deluxe_scaling) {
@@ -333,24 +331,24 @@ PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
       }
       ierr = PetscMPIIntCast(ptrs_buffer[i]-ptrs_buffer[i-1],&buf_size);CHKERRQ(ierr);
       ierr = PetscMPIIntCast(pcis->neigh[i],&neigh);CHKERRQ(ierr);
-      ierr = MPI_Isend(&send_buffer[ptrs_buffer[i-1]],buf_size,MPIU_SCALAR,neigh,0,comm,&send_reqs[i-1]);CHKERRQ(ierr);
-      ierr = MPI_Irecv(&recv_buffer[ptrs_buffer[i-1]],buf_size,MPIU_SCALAR,neigh,0,comm,&recv_reqs[i-1]);CHKERRQ(ierr);
+      ierr = MPI_Isend(&send_buffer[ptrs_buffer[i-1]],buf_size,MPIU_SCALAR,neigh,0,comm,&send_reqs[i-1]);CHKERRMPI(ierr);
+      ierr = MPI_Irecv(&recv_buffer[ptrs_buffer[i-1]],buf_size,MPIU_SCALAR,neigh,0,comm,&recv_reqs[i-1]);CHKERRMPI(ierr);
     }
     ierr = VecRestoreArrayRead(pcis->vec1_N,(const PetscScalar**)&array);CHKERRQ(ierr);
     if (pcis->n_neigh > 0) {
-      ierr = MPI_Waitall(pcis->n_neigh-1,recv_reqs,MPI_STATUSES_IGNORE);CHKERRQ(ierr);
+      ierr = MPI_Waitall(pcis->n_neigh-1,recv_reqs,MPI_STATUSES_IGNORE);CHKERRMPI(ierr);
     }
     /* put values in correct places */
     for (i=1;i<pcis->n_neigh;i++) {
       for (j=0;j<pcis->n_shared[i];j++) {
         k = pcis->shared[i][j];
         neigh_position = 0;
-        while(mat_graph->neighbours_set[k][neigh_position] != pcis->neigh[i]) {neigh_position++;}
+        while (mat_graph->neighbours_set[k][neigh_position] != pcis->neigh[i]) {neigh_position++;}
         all_factors[k][neigh_position]=recv_buffer[ptrs_buffer[i-1]+j];
       }
     }
     if (pcis->n_neigh > 0) {
-      ierr = MPI_Waitall(pcis->n_neigh-1,send_reqs,MPI_STATUSES_IGNORE);CHKERRQ(ierr);
+      ierr = MPI_Waitall(pcis->n_neigh-1,send_reqs,MPI_STATUSES_IGNORE);CHKERRMPI(ierr);
     }
     ierr = PetscFree(send_reqs);CHKERRQ(ierr);
     ierr = PetscFree(recv_reqs);CHKERRQ(ierr);
@@ -382,7 +380,7 @@ PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
     }
     if (all_factors) array = all_factors[aux_local_numbering_1[i]];
     n_neg_values = 0;
-    while(n_neg_values < j && mat_graph->neighbours_set[aux_local_numbering_1[i]][n_neg_values] < rank) {n_neg_values++;}
+    while (n_neg_values < j && mat_graph->neighbours_set[aux_local_numbering_1[i]][n_neg_values] < rank) {n_neg_values++;}
     n_pos_values = j - n_neg_values;
     if (fully_redundant) {
       for (s=0;s<n_neg_values;s++) {
@@ -406,10 +404,10 @@ PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
         vals_B_delta   [partial_sum+s]=0.0;
       }
       /* B_delta */
-      if ( n_neg_values > 0 ) { /* there's a rank next to me to the left */
+      if (n_neg_values > 0) { /* there's a rank next to me to the left */
         vals_B_delta   [partial_sum+n_neg_values-1]=-1.0;
       }
-      if ( n_neg_values < j ) { /* there's a rank next to me to the right */
+      if (n_neg_values < j) { /* there's a rank next to me to the right */
         vals_B_delta   [partial_sum+n_neg_values]=1.0;
       }
       /* scaling as in Klawonn-Widlund 1999 */
@@ -644,7 +642,7 @@ PetscErrorCode PCBDDCSetupFETIDPMatContext(FETIDPMat_ctx fetidpmat_ctx )
     ierr = PetscLayoutGetRanges(play,&pranges);CHKERRQ(ierr);
     ierr = PetscLayoutGetRanges(llay,&lranges);CHKERRQ(ierr);
 
-    ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)fetidp_global),&rank);CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)fetidp_global),&rank);CHKERRMPI(ierr);
     ierr = ISCreateStride(PetscObjectComm((PetscObject)fetidp_global),pranges[rank+1]-pranges[rank],aranges[rank],1,&fetidpmat_ctx->pressure);CHKERRQ(ierr);
     ierr = PetscObjectSetName((PetscObject)fetidpmat_ctx->pressure,"F_P");CHKERRQ(ierr);
     ierr = ISCreateStride(PetscObjectComm((PetscObject)fetidp_global),lranges[rank+1]-lranges[rank],aranges[rank]+pranges[rank+1]-pranges[rank],1,&fetidpmat_ctx->lagrange);CHKERRQ(ierr);
@@ -1019,7 +1017,7 @@ PetscErrorCode FETIDPPCView(PC pc, PetscViewer viewer)
     PetscBool   isschur,isshell;
 
     ierr = PCShellGetContext(pc,(void**)&pc_ctx);CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)pc),&rank);CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)pc),&rank);CHKERRMPI(ierr);
     ierr = PetscObjectTypeCompare((PetscObject)pc_ctx->S_j,MATSCHURCOMPLEMENT,&isschur);CHKERRQ(ierr);
     if (isschur) {
       ierr = PetscViewerASCIIPrintf(viewer,"  Dirichlet preconditioner (just from rank 0)\n");CHKERRQ(ierr);

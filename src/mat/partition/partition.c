@@ -14,13 +14,13 @@ static PetscErrorCode MatPartitioningApply_Current(MatPartitioning part,IS *part
   PetscMPIInt    rank,size;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)part),&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)part),&size);CHKERRMPI(ierr);
   if (part->n != size) {
     const char *prefix;
     ierr = PetscObjectGetOptionsPrefix((PetscObject)part,&prefix);CHKERRQ(ierr);
     SETERRQ1(PetscObjectComm((PetscObject)part),PETSC_ERR_SUP,"This is the DEFAULT NO-OP partitioner, it currently only supports one domain per processor\nuse -%smat_partitioning_type parmetis or chaco or ptscotch for more than one subdomain per processor",prefix ? prefix : "");
   }
-  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)part),&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)part),&rank);CHKERRMPI(ierr);
 
   ierr = MatGetLocalSize(part->adj,&m,NULL);CHKERRQ(ierr);
   ierr = ISCreateStride(PetscObjectComm((PetscObject)part),m,rank,0,partitioning);CHKERRQ(ierr);
@@ -65,7 +65,7 @@ static PetscErrorCode MatPartitioningApply_Square(MatPartitioning part,IS *parti
   PetscMPIInt    size;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)part),&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)part),&size);CHKERRMPI(ierr);
   if (part->n != size) SETERRQ(PetscObjectComm((PetscObject)part),PETSC_ERR_SUP,"Currently only supports one domain per processor");
   p = (PetscInt)PetscSqrtReal((PetscReal)part->n);
   if (p*p != part->n) SETERRQ(PetscObjectComm((PetscObject)part),PETSC_ERR_SUP,"Square partitioning requires \"perfect square\" number of domains");
@@ -88,8 +88,8 @@ PETSC_EXTERN PetscErrorCode MatPartitioningCreate_Current(MatPartitioning part)
 {
   PetscFunctionBegin;
   part->ops->apply   = MatPartitioningApply_Current;
-  part->ops->view    = 0;
-  part->ops->destroy = 0;
+  part->ops->view    = NULL;
+  part->ops->destroy = NULL;
   PetscFunctionReturn(0);
 }
 
@@ -97,8 +97,8 @@ PETSC_EXTERN PetscErrorCode MatPartitioningCreate_Average(MatPartitioning part)
 {
   PetscFunctionBegin;
   part->ops->apply   = MatPartitioningApply_Average;
-  part->ops->view    = 0;
-  part->ops->destroy = 0;
+  part->ops->view    = NULL;
+  part->ops->destroy = NULL;
   PetscFunctionReturn(0);
 }
 
@@ -106,8 +106,8 @@ PETSC_EXTERN PetscErrorCode MatPartitioningCreate_Square(MatPartitioning part)
 {
   PetscFunctionBegin;
   part->ops->apply   = MatPartitioningApply_Square;
-  part->ops->view    = 0;
-  part->ops->destroy = 0;
+  part->ops->view    = NULL;
+  part->ops->destroy = NULL;
   PetscFunctionReturn(0);
 }
 
@@ -164,7 +164,7 @@ PETSC_INTERN PetscErrorCode MatPartitioningSizesToSep_Private(PetscInt p, PetscI
 
 /* ===========================================================================================*/
 
-PetscFunctionList MatPartitioningList              = 0;
+PetscFunctionList MatPartitioningList              = NULL;
 PetscBool         MatPartitioningRegisterAllCalled = PETSC_FALSE;
 
 
@@ -430,7 +430,7 @@ PetscErrorCode  MatPartitioningViewImbalance(MatPartitioning matp, IS partitioni
   for (i=0;i<nlocal;i++) {
     subdomainsizes_tmp[indices[i]] += matp->vertex_weights? matp->vertex_weights[i]:1;
   }
-  ierr = MPI_Allreduce(subdomainsizes_tmp,subdomainsizes,nparts,MPIU_INT,MPI_SUM, PetscObjectComm((PetscObject)matp));CHKERRQ(ierr);
+  ierr = MPI_Allreduce(subdomainsizes_tmp,subdomainsizes,nparts,MPIU_INT,MPI_SUM, PetscObjectComm((PetscObject)matp));CHKERRMPI(ierr);
   ierr = ISRestoreIndices(partitioning,&indices);CHKERRQ(ierr);
   minsub = PETSC_MAX_INT, maxsub = PETSC_MIN_INT, avgsub=0;
   for (i=0; i<nparts; i++) {
@@ -488,7 +488,7 @@ PetscErrorCode  MatPartitioningDestroy(MatPartitioning *part)
   PetscFunctionBegin;
   if (!*part) PetscFunctionReturn(0);
   PetscValidHeaderSpecific((*part),MAT_PARTITIONING_CLASSID,1);
-  if (--((PetscObject)(*part))->refct > 0) {*part = 0; PetscFunctionReturn(0);}
+  if (--((PetscObject)(*part))->refct > 0) {*part = NULL; PetscFunctionReturn(0);}
 
   if ((*part)->ops->destroy) {
     ierr = (*(*part)->ops->destroy)((*part));CHKERRQ(ierr);
@@ -561,6 +561,56 @@ PetscErrorCode  MatPartitioningSetPartitionWeights(MatPartitioning part,const Pe
 }
 
 /*@
+   MatPartitioningSetUseEdgeWeights - Set a flag to indicate whether or not to use edge weights.
+
+   Logically Collective on Partitioning
+
+   Input Parameters:
++  part - the partitioning context
+-  use_edge_weights - the flag indicateing whether or not to use edge weights. By default no edge weights will be used,
+                      that is, use_edge_weights is set to FALSE. If set use_edge_weights to TRUE, users need to make sure legal
+                      edge weights are stored in an ADJ matrix.
+   Level: beginner
+
+   Options Database Keys:
+.  -mat_partitioning_use_edge_weights - (true or false)
+
+.seealso: MatPartitioningCreate(), MatPartitioningSetType(), MatPartitioningSetVertexWeights(), MatPartitioningSetPartitionWeights()
+@*/
+PetscErrorCode  MatPartitioningSetUseEdgeWeights(MatPartitioning part,PetscBool use_edge_weights)
+{
+  PetscFunctionBegin;
+  PetscValidHeaderSpecific(part,MAT_PARTITIONING_CLASSID,1);
+  part->use_edge_weights = use_edge_weights;
+  PetscFunctionReturn(0);
+}
+
+/*@
+   MatPartitioningGetUseEdgeWeights - Get a flag that indicates whether or not to edge weights are used.
+
+   Logically Collective on Partitioning
+
+   Input Parameters:
+.  part - the partitioning context
+
+   Output Parameters:
+.  use_edge_weights - the flag indicateing whether or not to edge weights are used.
+
+   Level: beginner
+
+.seealso: MatPartitioningCreate(), MatPartitioningSetType(), MatPartitioningSetVertexWeights(), MatPartitioningSetPartitionWeights(),
+          MatPartitioningSetUseEdgeWeights
+@*/
+PetscErrorCode  MatPartitioningGetUseEdgeWeights(MatPartitioning part,PetscBool *use_edge_weights)
+{
+  PetscFunctionBegin;
+  PetscValidHeaderSpecific(part,MAT_PARTITIONING_CLASSID,1);
+  PetscValidPointer(use_edge_weights,2);
+  *use_edge_weights = part->use_edge_weights;
+  PetscFunctionReturn(0);
+}
+
+/*@
    MatPartitioningCreate - Creates a partitioning context.
 
    Collective
@@ -584,14 +634,15 @@ PetscErrorCode  MatPartitioningCreate(MPI_Comm comm,MatPartitioning *newp)
   PetscMPIInt     size;
 
   PetscFunctionBegin;
-  *newp = 0;
+  *newp = NULL;
 
   ierr = MatInitializePackage();CHKERRQ(ierr);
   ierr = PetscHeaderCreate(part,MAT_PARTITIONING_CLASSID,"MatPartitioning","Matrix/graph partitioning","MatOrderings",comm,MatPartitioningDestroy,MatPartitioningView);CHKERRQ(ierr);
   part->vertex_weights = NULL;
   part->part_weights   = NULL;
+  part->use_edge_weights = PETSC_FALSE; /* By default we don't use edge weights */
 
-  ierr    = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+  ierr    = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
   part->n = (PetscInt)size;
 
   *newp = part;
@@ -709,7 +760,7 @@ PetscErrorCode  MatPartitioningSetType(MatPartitioning part,MatPartitioningType 
     part->ops->destroy = NULL;
   }
   part->setupcalled = 0;
-  part->data        = 0;
+  part->data        = NULL;
   ierr = PetscMemzero(part->ops,sizeof(struct _MatPartitioningOps));CHKERRQ(ierr);
 
   ierr = PetscFunctionListFind(MatPartitioningList,type,&r);CHKERRQ(ierr);
@@ -775,6 +826,8 @@ PetscErrorCode  MatPartitioningSetFromOptions(MatPartitioning part)
   }
 
   ierr = PetscOptionsInt("-mat_partitioning_nparts","number of fine parts",NULL,part->n,& part->n,&flag);CHKERRQ(ierr);
+
+  ierr = PetscOptionsBool("-mat_partitioning_use_edge_weights","whether or not to use edge weights",NULL,part->use_edge_weights,&part->use_edge_weights,&flag);CHKERRQ(ierr);
 
   /*
     Set the type if it was never set.

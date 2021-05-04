@@ -11,13 +11,8 @@ class Configure(config.base.Configure):
     return
 
   def __str1__(self):
-    if not hasattr(self, 'useShared'):
-      return ''
-    txt = ''
-    if self.useShared:
-      txt += '  shared libraries: enabled\n'
-    else:
-      txt += '  shared libraries: disabled\n'
+    txt =  '  Single library: %s\n' % ('yes' if self.framework.argDB['with-single-library'] else 'no')
+    txt += '  Shared libraries: %s\n' % ('yes' if self.useShared else 'no')
     return txt
 
   def setupHelp(self, help):
@@ -31,6 +26,9 @@ class Configure(config.base.Configure):
     self.arch         = framework.require('PETSc.options.arch', self)
     self.debuggers    = framework.require('config.utilities.debuggers', self)
     self.setCompilers = framework.require('config.setCompilers', self)
+    self.headers      = framework.require('config.headers', self)
+    self.functions    = framework.require('config.functions', self)
+    self.ftm          = framework.require('config.utilities.featureTestMacros', self)
     return
 
   def checkSharedDynamicPicOptions(self):
@@ -39,7 +37,6 @@ class Configure(config.base.Configure):
       raise RuntimeError('Option "--with-shared" no longer exists. Use "--with-shared-libraries".')
     if 'with-dynamic' in self.framework.argDB or 'with-dynamic-loading' in self.framework.argDB:
       raise RuntimeError('Option "--with-dynamic" and "--with-dynamic-loading" no longer exist.')
-    # if user specifies inconsistant 'with-dynamic-loading with-shared-libraries with-pic' options - flag error
     if self.framework.argDB['with-shared-libraries'] and not self.framework.argDB['with-pic'] and 'with-pic' in self.framework.clArgDB:
       raise RuntimeError('If you use --with-shared-libraries you cannot disable --with-pic')
 
@@ -74,6 +71,7 @@ class Configure(config.base.Configure):
       elif self.setCompilers.CC.find('win32fe') >=0:
         self.addMakeMacro('SONAME_FUNCTION', '$(1).dll')
         self.addMakeMacro('SL_LINKER_FUNCTION', '-LD')
+        self.addMakeMacro('PETSC_DLL_EXPORTS', '1')
       else:
         # TODO: check that -Wl,-soname,${LIBNAME}.${SL_LINKER_SUFFIX} can be passed (might fail on Intel)
         # TODO: check whether to use -qmkshrobj or -shared (maybe we can just use self.setCompilers.sharedLibraryFlags)
@@ -81,6 +79,8 @@ class Configure(config.base.Configure):
         self.addMakeRule('shared_arch','shared_linux')
         self.addMakeMacro('SONAME_FUNCTION', '$(1).so.$(2)')
         self.addMakeMacro('SL_LINKER_FUNCTION', '-shared -Wl,-soname,$(call SONAME_FUNCTION,$(notdir $(1)),$(2))')
+        if config.setCompilers.Configure.isMINGW(self.framework.getCompiler(),self.log):
+          self.addMakeMacro('PETSC_DLL_EXPORTS', '1')
       self.addMakeMacro('BUILDSHAREDLIB','yes')
     else:
       self.addMakeRule('shared_arch','')
@@ -106,10 +106,18 @@ class Configure(config.base.Configure):
     if self.framework.argDB['with-serialize-functions'] and self.setCompilers.dynamicLibraries:
       self.addDefine('SERIALIZE_FUNCTIONS', 1)
 
+  def checkSymbolResolution(self):
+    '''Checks that dladdr() works'''
+    if self.headers.haveHeader('dlfcn.h') and self.functions.haveFunction('dlerror'):
+      ftm = ''
+      if self.ftm.defines.get('_GNU_SOURCE'): ftm = '#define _GNU_SOURCE\n'
+      if self.checkCompile('%s#include<stdlib.h>\n#include <dlfcn.h>\n' % ftm, 'Dl_info info;\n\nif (dladdr(exit, &info));\n'):
+        self.addDefine('HAVE_DLADDR', 1)
 
   def configure(self):
     self.executeTest(self.checkSharedDynamicPicOptions)
     self.executeTest(self.configureSharedLibraries)
     self.executeTest(self.configureDynamicLibraries)
     self.executeTest(self.configureSerializedFunctions)
+    self.executeTest(self.checkSymbolResolution)
     return

@@ -58,8 +58,11 @@ PETSC_EXTERN PetscErrorCode PCCreate_PARMS(PC);
 #endif
 PETSC_EXTERN PetscErrorCode PCCreate_BDDC(PC);
 PETSC_EXTERN PetscErrorCode PCCreate_Deflation(PC);
-#if defined(PETSC_HAVE_HPDDM)
+#if defined(PETSC_HAVE_HPDDM) && defined(PETSC_HAVE_DYNAMIC_LIBRARIES) && defined(PETSC_USE_SHARED_LIBRARIES)
 PETSC_EXTERN PetscErrorCode PCCreate_HPDDM(PC);
+#endif
+#if defined(PETSC_HAVE_HARA)
+PETSC_EXTERN PetscErrorCode PCCreate_HARA(PC);
 #endif
 
 /*@C
@@ -72,7 +75,7 @@ PETSC_EXTERN PetscErrorCode PCCreate_HPDDM(PC);
 
    Level: advanced
 
-.seealso: PCRegister(), PCRegisterDestroy()
+.seealso: PCRegister()
 @*/
 PetscErrorCode  PCRegisterAll(void)
 {
@@ -139,8 +142,11 @@ PetscErrorCode  PCRegisterAll(void)
   ierr = PCRegister(PCBDDC         ,PCCreate_BDDC);CHKERRQ(ierr);
   ierr = PCRegister(PCLMVM         ,PCCreate_LMVM);CHKERRQ(ierr);
   ierr = PCRegister(PCDEFLATION    ,PCCreate_Deflation);CHKERRQ(ierr);
-#if defined(PETSC_HAVE_HPDDM)
+#if defined(PETSC_HAVE_HPDDM) && defined(PETSC_HAVE_DYNAMIC_LIBRARIES) && defined(PETSC_USE_SHARED_LIBRARIES)
   ierr = PCRegister(PCHPDDM        ,PCCreate_HPDDM);CHKERRQ(ierr);
+#endif
+#if defined(PETSC_HAVE_HARA)
+  ierr = PCRegister(PCHARA         ,PCCreate_HARA);CHKERRQ(ierr);
 #endif
   PetscFunctionReturn(0);
 }

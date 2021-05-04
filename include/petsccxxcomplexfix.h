@@ -1,6 +1,14 @@
 #if !defined(PETSCCXXCOMPLEXFIX_H)
 #define PETSCCXXCOMPLEXFIX_H
-#if defined(__cplusplus) && defined(PETSC_HAVE_COMPLEX) && defined(PETSC_HAVE_CXX_COMPLEX)
+
+/*
+    The pragma below silence all compiler warnings comming from code in this header file.
+    In particular, it silences `-Wfloat-equal` warnings in `operator==()` and `operator!=` below.
+    Other compilers beyond GCC support this pragma.
+*/
+#if defined(__GNUC__) && (__GNUC__ >= 4)
+#pragma GCC system_header
+#endif
 
 /*
      Defines additional operator overloading for the C++ complex class that are "missing" in the standard
@@ -35,6 +43,10 @@
      before including any PETSc include files to prevent these methods from being provided.
 */
 
+#if defined(__GNUC__) && (__GNUC__ >= 4)
+#pragma GCC system_header
+#endif
+
 #define PETSC_CXX_COMPLEX_FIX(Type) \
 static inline PetscComplex operator+(const PetscComplex& lhs, const Type& rhs) { return const_cast<PetscComplex&>(lhs) + PetscReal(rhs); } \
 static inline PetscComplex operator+(const Type& lhs, const PetscComplex& rhs) { return PetscReal(lhs) + const_cast<PetscComplex&>(rhs); } \
@@ -60,5 +72,4 @@ PETSC_CXX_COMPLEX_FIX(double)
 PETSC_CXX_COMPLEX_FIX(PetscInt)
 #endif /* PETSC_USE_REAL_* */
 
-#endif /* __cplusplus && PETSC_HAVE_COMPLEX && PETSC_HAVE_CXX_COMPLEX */
 #endif

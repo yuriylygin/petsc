@@ -14,6 +14,7 @@
 
 PETSC_EXTERN PetscBool VecRegisterAllCalled;
 PETSC_EXTERN PetscErrorCode VecRegisterAll(void);
+PETSC_EXTERN MPI_Op MPIU_MAXINDEX_OP, MPIU_MININDEX_OP;
 
 /* ----------------------------------------------------------------------------*/
 
@@ -49,7 +50,7 @@ struct _VecOps {
   PetscErrorCode (*max)(Vec,PetscInt*,PetscReal*);      /* z = max(x); idx=index of max(x) */
   PetscErrorCode (*min)(Vec,PetscInt*,PetscReal*);      /* z = min(x); idx=index of min(x) */
   PetscErrorCode (*setrandom)(Vec,PetscRandom);         /* set y[j] = random numbers */
-  PetscErrorCode (*setoption)(Vec,VecOption,PetscBool );
+  PetscErrorCode (*setoption)(Vec,VecOption,PetscBool);
   PetscErrorCode (*setvaluesblocked)(Vec,PetscInt,const PetscInt[],const PetscScalar[],InsertMode);
   PetscErrorCode (*destroy)(Vec);
   PetscErrorCode (*view)(Vec,PetscViewer);
@@ -93,9 +94,14 @@ struct _VecOps {
   PetscErrorCode (*restorelocalvector)(Vec,Vec);
   PetscErrorCode (*getlocalvectorread)(Vec,Vec);
   PetscErrorCode (*restorelocalvectorread)(Vec,Vec);
-  PetscErrorCode (*pintocpu)(Vec,PetscBool);
+  PetscErrorCode (*bindtocpu)(Vec,PetscBool);
   PetscErrorCode (*getarraywrite)(Vec,PetscScalar**);
   PetscErrorCode (*restorearraywrite)(Vec,PetscScalar**);
+  PetscErrorCode (*getarrayandmemtype)(Vec,PetscScalar**,PetscMemType*);
+  PetscErrorCode (*getarrayreadandmemtype)(Vec,const PetscScalar**,PetscMemType*);
+  PetscErrorCode (*restorearrayandmemtype)(Vec,PetscScalar**);
+  PetscErrorCode (*restorearrayreadandmemtype)(Vec,const PetscScalar**);
+  PetscErrorCode (*concatenate)(PetscInt,const Vec[],Vec*,IS*[]);
 };
 
 /*
@@ -140,11 +146,14 @@ struct _p_Vec {
   VecStash               stash,bstash; /* used for storing off-proc values during assembly */
   PetscBool              petscnative;  /* means the ->data starts with VECHEADER and can use VecGetArrayFast()*/
   PetscInt               lock;         /* lock state. vector can be free (=0), locked for read (>0) or locked for write(<0) */
-#if defined(PETSC_HAVE_VIENNACL) || defined(PETSC_HAVE_CUDA)
   PetscOffloadMask       offloadmask;  /* a mask which indicates where the valid vector data is (GPU, CPU or both) */
-  PetscBool              pinnedtocpu;
+#if defined(PETSC_HAVE_DEVICE)
   void                   *spptr; /* this is the special pointer to the array on the GPU */
+  PetscBool              boundtocpu;
+  size_t                 minimum_bytes_pinned_memory; /* minimum data size in bytes for which pinned memory will be allocated */
+  PetscBool              pinned_memory; /* PETSC_TRUE if the current host allocation has been made from pinned memory. */
 #endif
+  char                   *defaultrandtype;
 };
 
 PETSC_EXTERN PetscLogEvent VEC_SetRandom;
@@ -185,6 +194,10 @@ PETSC_EXTERN PetscLogEvent VEC_CUDACopyToGPU;
 PETSC_EXTERN PetscLogEvent VEC_CUDACopyFromGPU;
 PETSC_EXTERN PetscLogEvent VEC_CUDACopyToGPUSome;
 PETSC_EXTERN PetscLogEvent VEC_CUDACopyFromGPUSome;
+PETSC_EXTERN PetscLogEvent VEC_HIPCopyToGPU;
+PETSC_EXTERN PetscLogEvent VEC_HIPCopyFromGPU;
+PETSC_EXTERN PetscLogEvent VEC_HIPCopyToGPUSome;
+PETSC_EXTERN PetscLogEvent VEC_HIPCopyFromGPUSome;
 
 PETSC_EXTERN PetscErrorCode VecView_Seq(Vec,PetscViewer);
 #if defined(PETSC_HAVE_VIENNACL)
@@ -194,6 +207,10 @@ PETSC_EXTERN PetscErrorCode VecViennaCLCopyFromGPU(Vec v);
 #if defined(PETSC_HAVE_CUDA)
 PETSC_EXTERN PetscErrorCode VecCUDAAllocateCheckHost(Vec v);
 PETSC_EXTERN PetscErrorCode VecCUDACopyFromGPU(Vec v);
+#endif
+#if defined(PETSC_HAVE_HIP)
+PETSC_EXTERN PetscErrorCode VecHIPAllocateCheckHost(Vec v);
+PETSC_EXTERN PetscErrorCode VecHIPCopyFromGPU(Vec v);
 #endif
 
 
@@ -216,7 +233,8 @@ PETSC_INTERN PetscErrorCode VecLockWriteSet_Private(Vec,PetscBool);
 /* Default obtain and release vectors; can be used by any implementation */
 PETSC_EXTERN PetscErrorCode VecDuplicateVecs_Default(Vec,PetscInt,Vec *[]);
 PETSC_EXTERN PetscErrorCode VecDestroyVecs_Default(PetscInt,Vec []);
-PETSC_INTERN PetscErrorCode VecLoad_Binary(Vec, PetscViewer);
+PETSC_EXTERN PetscErrorCode VecView_Binary(Vec, PetscViewer);
+PETSC_EXTERN PetscErrorCode VecLoad_Binary(Vec, PetscViewer);
 PETSC_EXTERN PetscErrorCode VecLoad_Default(Vec, PetscViewer);
 
 PETSC_EXTERN PetscInt  NormIds[7];  /* map from NormType to IDs used to cache/retreive values of norms */
@@ -297,14 +315,14 @@ PETSC_EXTERN PetscErrorCode PetscSectionRestoreField_Internal(PetscSection, Pets
 #define VecCheckSameSize(x,ar1,y,ar2) do { \
     if ((x)->map->N != (y)->map->N) SETERRQ4(PetscObjectComm((PetscObject)x),PETSC_ERR_ARG_INCOMP,"Incompatible vector global lengths parameter # %d global size %D != parameter # %d global size %D", ar1,(x)->map->N, ar2,(y)->map->N); \
     VecCheckSameLocalSize(x,ar1,y,ar2); \
-  } while(0)
+  } while (0)
 
 #define VecCheckLocalSize(x,ar1,n) do { \
     if ((x)->map->n != n) SETERRQ3(PETSC_COMM_SELF,PETSC_ERR_ARG_INCOMP,"Incorrect vector local size: parameter # %d local size %D != %D",ar1,(x)->map->n,n); \
   } while (0)
 
 #define VecCheckSize(x,ar1,n,N) do { \
-    if ((x)->map->N != N) SETERRQ(PetscObjectComm((PetscObject)x),PETSC_ERR_ARG_INCOMP,"Incorrect vector global size: parameter # %d global size %D != %D",ar1,(x)->map->N, N); \
+    if ((x)->map->N != N) SETERRQ3(PetscObjectComm((PetscObject)x),PETSC_ERR_ARG_INCOMP,"Incorrect vector global size: parameter # %d global size %D != %D",ar1,(x)->map->N, N); \
     VecCheckLocalSize(x,ar1,n); \
   } while (0)
 

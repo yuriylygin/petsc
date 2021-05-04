@@ -133,7 +133,8 @@ static PetscErrorCode ISRestoreIndices_General(IS in,const PetscInt *idx[])
   IS_General *sub = (IS_General*)in->data;
 
   PetscFunctionBegin;
-  if (*idx != sub->idx) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONG,"Must restore with value from ISGetIndices()");
+   /* F90Array1dCreate() inside ISRestoreArrayF90() does not keep array when zero length array */
+  if (in->map->n > 0  && *idx != sub->idx) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONG,"Must restore with value from ISGetIndices()");
   PetscFunctionReturn(0);
 }
 
@@ -148,7 +149,7 @@ static PetscErrorCode ISInvertPermutation_General(IS is,PetscInt nlocal,IS *isou
 
   PetscFunctionBegin;
   ierr = PetscLayoutGetLocalSize(is->map, &n);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)is),&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)is),&size);CHKERRMPI(ierr);
   if (size == 1) {
     ierr = PetscMalloc1(n,&ii);CHKERRQ(ierr);
     for (i=0; i<n; i++) ii[idx[i]] = i;
@@ -162,18 +163,16 @@ static PetscErrorCode ISInvertPermutation_General(IS is,PetscInt nlocal,IS *isou
     ierr = ISDestroy(&istmp);CHKERRQ(ierr);
     /* get the part we need */
     if (nlocal == PETSC_DECIDE) nlocal = n;
-    ierr = MPI_Scan(&nlocal,&nstart,1,MPIU_INT,MPI_SUM,PetscObjectComm((PetscObject)is));CHKERRQ(ierr);
-#if defined(PETSC_USE_DEBUG)
-    {
+    ierr = MPI_Scan(&nlocal,&nstart,1,MPIU_INT,MPI_SUM,PetscObjectComm((PetscObject)is));CHKERRMPI(ierr);
+    if (PetscDefined(USE_DEBUG)) {
       PetscInt    N;
       PetscMPIInt rank;
-      ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)is),&rank);CHKERRQ(ierr);
+      ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)is),&rank);CHKERRMPI(ierr);
       ierr = PetscLayoutGetSize(is->map, &N);CHKERRQ(ierr);
       if (rank == size-1) {
         if (nstart != N) SETERRQ2(PETSC_COMM_SELF,PETSC_ERR_ARG_INCOMP,"Sum of nlocal lengths %d != total IS length %d",nstart,N);
       }
     }
-#endif
     nstart -= nlocal;
     ierr    = ISGetIndices(nistmp,&idx);CHKERRQ(ierr);
     ierr    = ISCreateGeneral(PetscObjectComm((PetscObject)is),nlocal,idx+nstart,PETSC_COPY_VALUES,isout);CHKERRQ(ierr);
@@ -194,7 +193,8 @@ static PetscErrorCode ISView_General_HDF5(IS is, PetscViewer viewer)
   hid_t           inttype;    /* int type (H5T_NATIVE_INT or H5T_NATIVE_LLONG) */
   hid_t           file_id, group;
   hsize_t         dim, maxDims[3], dims[3], chunkDims[3], count[3],offset[3];
-  PetscInt        bs, N, n, timestep, low;
+  PetscBool       timestepping;
+  PetscInt        bs, N, n, timestep=PETSC_MIN_INT, low;
   const PetscInt *ind;
   const char     *isname;
   PetscErrorCode  ierr;
@@ -203,7 +203,10 @@ static PetscErrorCode ISView_General_HDF5(IS is, PetscViewer viewer)
   ierr = ISGetBlockSize(is,&bs);CHKERRQ(ierr);
   bs   = PetscMax(bs, 1); /* If N = 0, bs  = 0 as well */
   ierr = PetscViewerHDF5OpenGroup(viewer, &file_id, &group);CHKERRQ(ierr);
-  ierr = PetscViewerHDF5GetTimestep(viewer, &timestep);CHKERRQ(ierr);
+  ierr = PetscViewerHDF5IsTimestepping(viewer, &timestepping);CHKERRQ(ierr);
+  if (timestepping) {
+    ierr = PetscViewerHDF5GetTimestep(viewer, &timestep);CHKERRQ(ierr);
+  }
 
   /* Create the dataspace for the dataset.
    *
@@ -271,7 +274,7 @@ static PetscErrorCode ISView_General_HDF5(IS is, PetscViewer viewer)
     count[dim] = bs;
     ++dim;
   }
-  if (n > 0) {
+  if (n > 0 || H5_VERSION_GE(1,10,0)) {
     PetscStackCallHDF5Return(memspace,H5Screate_simple,(dim, count, NULL));
   } else {
     /* Can't create dataspace with zero for any dimension, so create null dataspace. */
@@ -291,7 +294,7 @@ static PetscErrorCode ISView_General_HDF5(IS is, PetscViewer viewer)
     offset[dim] = 0;
     ++dim;
   }
-  if (n > 0) {
+  if (n > 0 || H5_VERSION_GE(1,10,0)) {
     PetscStackCallHDF5Return(filespace,H5Dget_space,(dset_id));
     PetscStackCallHDF5(H5Sselect_hyperslab,(filespace, H5S_SELECT_SET, offset, NULL, count, NULL));
   } else {
@@ -309,88 +312,12 @@ static PetscErrorCode ISView_General_HDF5(IS is, PetscViewer viewer)
   PetscStackCallHDF5(H5Sclose,(filespace));
   PetscStackCallHDF5(H5Sclose,(memspace));
   PetscStackCallHDF5(H5Dclose,(dset_id));
+
+  ierr = PetscViewerHDF5WriteObjectAttribute(viewer,(PetscObject)is,"timestepping",PETSC_BOOL,&timestepping);CHKERRQ(ierr);
   ierr = PetscInfo1(is, "Wrote IS object with name %s\n", isname);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 #endif
-
-static PetscErrorCode ISView_General_Binary(IS is,PetscViewer viewer)
-{
-  PetscErrorCode ierr;
-  PetscBool      skipHeader,useMPIIO;
-  IS_General     *isa = (IS_General*) is->data;
-  PetscMPIInt    rank,size,mesgsize,tag = ((PetscObject)viewer)->tag, mesglen;
-  PetscInt       n,N,len,j,tr[2];
-  int            fdes;
-  MPI_Status     status;
-  PetscInt       message_count,flowcontrolcount,*values;
-
-  PetscFunctionBegin;
-  /* ierr = ISGetLayout(is,&map);CHKERRQ(ierr); */
-  ierr = PetscLayoutGetLocalSize(is->map, &n);CHKERRQ(ierr);
-  ierr = PetscLayoutGetSize(is->map, &N);CHKERRQ(ierr);
-
-  tr[0] = IS_FILE_CLASSID;
-  tr[1] = N;
-
-  ierr = PetscViewerBinaryGetSkipHeader(viewer,&skipHeader);CHKERRQ(ierr);
-  if (!skipHeader) {
-    ierr  = PetscViewerBinaryWrite(viewer,tr,2,PETSC_INT,PETSC_FALSE);CHKERRQ(ierr);
-  }
-
-  ierr = PetscViewerBinaryGetUseMPIIO(viewer,&useMPIIO);CHKERRQ(ierr);
-#if defined(PETSC_HAVE_MPIIO)
-  if (useMPIIO) {
-    MPI_File       mfdes;
-    MPI_Offset     off;
-    PetscMPIInt    lsize;
-    PetscInt       rstart;
-    const PetscInt *iarray;
-
-    ierr = PetscMPIIntCast(n,&lsize);CHKERRQ(ierr);
-    ierr = PetscViewerBinaryGetMPIIODescriptor(viewer,&mfdes);CHKERRQ(ierr);
-    ierr = PetscViewerBinaryGetMPIIOOffset(viewer,&off);CHKERRQ(ierr);
-    ierr = PetscLayoutGetRange(is->map,&rstart,NULL);CHKERRQ(ierr);
-    off += rstart*(MPI_Offset)sizeof(PetscInt); /* off is MPI_Offset, not PetscMPIInt */
-    ierr = MPI_File_set_view(mfdes,off,MPIU_INT,MPIU_INT,(char*)"native",MPI_INFO_NULL);CHKERRQ(ierr);
-    ierr = ISGetIndices(is,&iarray);CHKERRQ(ierr);
-    ierr = MPIU_File_write_all(mfdes,(void*)iarray,lsize,MPIU_INT,MPI_STATUS_IGNORE);CHKERRQ(ierr);
-    ierr = ISRestoreIndices(is,&iarray);CHKERRQ(ierr);
-    ierr = PetscViewerBinaryAddMPIIOOffset(viewer,N*(MPI_Offset)sizeof(PetscInt));CHKERRQ(ierr);
-    PetscFunctionReturn(0);
-  }
-#endif
-
-  ierr = PetscViewerBinaryGetDescriptor(viewer,&fdes);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)is),&rank);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)is),&size);CHKERRQ(ierr);
-
-  /* determine maximum message to arrive */
-  ierr = MPI_Reduce(&n,&len,1,MPIU_INT,MPI_MAX,0,PetscObjectComm((PetscObject)is));CHKERRQ(ierr);
-
-  ierr = PetscViewerFlowControlStart(viewer,&message_count,&flowcontrolcount);CHKERRQ(ierr);
-  if (!rank) {
-    ierr = PetscBinaryWrite(fdes,isa->idx,n,PETSC_INT,PETSC_FALSE);CHKERRQ(ierr);
-
-    ierr = PetscMalloc1(len,&values);CHKERRQ(ierr);
-    ierr = PetscMPIIntCast(len,&mesgsize);CHKERRQ(ierr);
-    /* receive and save messages */
-    for (j=1; j<size; j++) {
-      ierr = PetscViewerFlowControlStepMaster(viewer,j,&message_count,flowcontrolcount);CHKERRQ(ierr);
-      ierr = MPI_Recv(values,mesgsize,MPIU_INT,j,tag,PetscObjectComm((PetscObject)is),&status);CHKERRQ(ierr);
-      ierr = MPI_Get_count(&status,MPIU_INT,&mesglen);CHKERRQ(ierr);
-      ierr = PetscBinaryWrite(fdes,values,(PetscInt)mesglen,PETSC_INT,PETSC_TRUE);CHKERRQ(ierr);
-    }
-    ierr = PetscViewerFlowControlEndMaster(viewer,&message_count);CHKERRQ(ierr);
-    ierr = PetscFree(values);CHKERRQ(ierr);
-  } else {
-    ierr = PetscViewerFlowControlStepWorker(viewer,rank,&message_count);CHKERRQ(ierr);
-    ierr = PetscMPIIntCast(n,&mesgsize);CHKERRQ(ierr);
-    ierr = MPI_Send(isa->idx,mesgsize,MPIU_INT,0,tag,PetscObjectComm((PetscObject)is));CHKERRQ(ierr);
-    ierr = PetscViewerFlowControlEndWorker(viewer,&message_count);CHKERRQ(ierr);
-  }
-  PetscFunctionReturn(0);
-}
 
 static PetscErrorCode ISView_General(IS is,PetscViewer viewer)
 {
@@ -411,8 +338,8 @@ static PetscErrorCode ISView_General(IS is,PetscViewer viewer)
     PetscBool         isperm;
 
     ierr = PetscObjectGetComm((PetscObject)viewer,&comm);CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
-    ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
+    ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
 
     ierr = PetscViewerGetFormat(viewer,&fmt);CHKERRQ(ierr);
     ierr = ISGetInfo(is,IS_PERMUTATION,IS_LOCAL,PETSC_FALSE,&isperm);CHKERRQ(ierr);
@@ -460,7 +387,7 @@ static PetscErrorCode ISView_General(IS is,PetscViewer viewer)
     ierr = PetscViewerFlush(viewer);CHKERRQ(ierr);
     ierr = PetscViewerASCIIPopSynchronized(viewer);CHKERRQ(ierr);
   } else if (isbinary) {
-    ierr = ISView_General_Binary(is,viewer);CHKERRQ(ierr);
+    ierr = ISView_Binary(is,viewer);CHKERRQ(ierr);
   } else if (ishdf5) {
 #if defined(PETSC_HAVE_HDF5)
     ierr = ISView_General_HDF5(is,viewer);CHKERRQ(ierr);
@@ -477,7 +404,7 @@ static PetscErrorCode ISSort_General(IS is)
 
   PetscFunctionBegin;
   ierr = PetscLayoutGetLocalSize(is->map, &n);CHKERRQ(ierr);
-  ierr = PetscSortInt(n,sub->idx);CHKERRQ(ierr);
+  ierr = PetscIntSortSemiOrdered(n,sub->idx);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 
@@ -594,9 +521,7 @@ PetscErrorCode ISSetUp_General(IS is)
    distributed sets of indices and thus certain operations on them are
    collective.
 
-
    Level: beginner
-
 
 .seealso: ISCreateStride(), ISCreateBlock(), ISAllGather(), PETSC_COPY_VALUES, PETSC_OWN_POINTER, PETSC_USE_POINTER, PetscCopyMode
 @*/
@@ -624,8 +549,7 @@ PetscErrorCode  ISCreateGeneral(MPI_Comm comm,PetscInt n,const PetscInt idx[],Pe
 
    Level: beginner
 
-
-.seealso: ISCreateGeneral(), ISCreateStride(), ISCreateBlock(), ISAllGather()
+.seealso: ISCreateGeneral(), ISCreateStride(), ISCreateBlock(), ISAllGather(), ISBlockSetIndices(), ISGENERAL, PetscCopyMode
 @*/
 PetscErrorCode  ISGeneralSetIndices(IS is,PetscInt n,const PetscInt idx[],PetscCopyMode mode)
 {
@@ -692,7 +616,7 @@ static PetscErrorCode ISGeneralFilter_General(IS is, PetscInt start, PetscInt en
 }
 
 /*@
-   ISGeneralFilter - Remove all points outside of [start, end)
+   ISGeneralFilter - Remove all indices outside of [start, end)
 
    Collective on IS
 

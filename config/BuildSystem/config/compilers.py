@@ -24,12 +24,24 @@ class Configure(config.base.Configure):
     self.fmainlibs = []
     self.clibs = []
     self.cxxlibs = []
+    self.skipdefaultpaths = []
     self.cxxCompileC = False
     self.cRestrict = ' '
     self.cxxRestrict = ' '
     self.cxxdialect = ''
     self.c99flag = None
     return
+
+  def getSkipDefaultPaths(self):
+    if len(self.skipdefaultpaths):
+      return self.skipdefaultpaths
+    else:
+      self.skipdefaultpaths = ['/usr/lib','/lib','/usr/lib64','/lib64']
+      conda_sysrt = os.getenv('CONDA_BUILD_SYSROOT')
+      if conda_sysrt:
+        conda_sysrt = os.path.abspath(conda_sysrt)
+        self.skipdefaultpaths.extend([conda_sysrt+lib for lib in self.skipdefaultpaths])
+      return self.skipdefaultpaths
 
   def setupHelp(self, help):
     import nargs
@@ -39,6 +51,8 @@ class Configure(config.base.Configure):
     help.addArgument('Compilers', '-with-cxxlib-autodetect=<bool>',         nargs.ArgBool(None, 1, 'Autodetect C++ compiler libraries'))
     help.addArgument('Compilers', '-with-dependencies=<bool>',              nargs.ArgBool(None, 1, 'Compile with -MMD or equivalent flag if possible'))
     help.addArgument('Compilers', '-with-cxx-dialect=<dialect>',            nargs.Arg(None, 'auto', 'Dialect under which to compile C++ sources (auto,cxx14,cxx11,0)'))
+    help.addArgument('Compilers', '-with-hip-dialect=<dialect>',            nargs.Arg(None, 'auto', 'Dialect under which to compile HIP sources (auto,cxx14,cxx11,0)'))
+    help.addArgument('Compilers', '-with-cuda-dialect=<dialect>',           nargs.Arg(None, 'auto', 'Dialect under which to compile CUDA sources (auto,cxx14,cxx11,0)'))
     return
 
   def getDispatchNames(self):
@@ -48,6 +62,10 @@ class Configure(config.base.Configure):
     names['CPP'] = 'No C preprocessor found.'
     names['CUDAC'] = 'No CUDA compiler found.'
     names['CUDAPP'] = 'No CUDA preprocessor found.'
+    names['HIPC'] = 'No HIP compiler found.'
+    names['HIPPP'] = 'No HIP preprocessor found.'
+    names['SYCLCXX'] = 'No SYCL compiler found.'
+    names['SYCLPP'] = 'No SYCL preprocessor found.'
     names['CXX'] = 'No C++ compiler found.'
     names['CXXPP'] = 'No C++ preprocessor found.'
     names['FC'] = 'No Fortran compiler found.'
@@ -56,7 +74,7 @@ class Configure(config.base.Configure):
     names['LD_SHARED'] = 'No shared linker found.'
     names['CC_LD'] = 'No C linker found.'
     names['dynamicLinker'] = 'No dynamic linker found.'
-    for language in ['C', 'CUDA', 'Cxx', 'FC']:
+    for language in ['C', 'CUDA', 'HIP', 'SYCL', 'Cxx', 'FC']:
       self.pushLanguage(language)
       key = self.getCompilerFlagsName(language, 0)
       names[key] = 'No '+language+' compiler flags found.'
@@ -68,6 +86,8 @@ class Configure(config.base.Configure):
     names['CPPFLAGS'] = 'No preprocessor flags found.'
     names['FPPFLAGS'] = 'No Fortran preprocessor flags found.'
     names['CUDAPPFLAGS'] = 'No CUDA preprocessor flags found.'
+    names['HIPPPFLAGS'] = 'No HIP preprocessor flags found.'
+    names['SYCLPPFLAGS'] = 'No SYCL preprocessor flags found.'
     names['CXXPPFLAGS'] = 'No C++ preprocessor flags found.'
     names['AR_FLAGS'] = 'No archiver flags found.'
     names['AR_LIB_SUFFIX'] = 'No static library suffix found.'
@@ -88,7 +108,7 @@ class Configure(config.base.Configure):
         if not hasattr(self.setCompilers, name):
           raise MissingProcessor(self.dispatchNames[name])
         return getattr(self.setCompilers, name)
-      if name in ['CC_LINKER_FLAGS', 'FC_LINKER_FLAGS', 'CXX_LINKER_FLAGS', 'CUDAC_LINKER_FLAGS','sharedLibraryFlags', 'dynamicLibraryFlags']:
+      if name in ['CC_LINKER_FLAGS', 'FC_LINKER_FLAGS', 'CXX_LINKER_FLAGS', 'CUDAC_LINKER_FLAGS', 'HIPC_LINKER_FLAGS', 'SYCLCXX_LINKER_FLAGS','sharedLibraryFlags', 'dynamicLibraryFlags']:
         flags = getattr(self.setCompilers, name)
         if not isinstance(flags, list): flags = [flags]
         return ' '.join(flags)
@@ -260,6 +280,7 @@ class Configure(config.base.Configure):
     # Parse output
     argIter = iter(output.split())
     clibs = []
+    skipdefaultpaths = self.getSkipDefaultPaths()
     lflags  = []
     rpathflags = []
     try:
@@ -308,7 +329,7 @@ class Configure(config.base.Configure):
             self.logPrint('already in lflags: '+arg, 4, 'compilers')
           continue
         # Check for system libraries
-        m = re.match(r'^-l(ang.*|crt[0-9].o|crtbegin.o|c|gcc|gcc_ext(.[0-9]+)*|System|cygwin|crt[0-9].[0-9][0-9].[0-9].o)$', arg)
+        m = re.match(r'^-l(ang.*|crt[0-9].o|crtbegin.o|c|gcc|gcc_ext(.[0-9]+)*|System|cygwin|xlomp_ser|crt[0-9].[0-9][0-9].[0-9].o)$', arg)
         if m:
           self.logPrint('Skipping system library: '+arg, 4, 'compilers')
           continue
@@ -325,8 +346,9 @@ class Configure(config.base.Configure):
           continue
         m = re.match(r'^-L.*$', arg)
         if m:
-          arg = '-L'+os.path.abspath(arg[2:])
-          if arg in ['-L/usr/lib','-L/lib','-L/usr/lib64','-L/lib64']: continue
+          arg = os.path.abspath(arg[2:])
+          if arg in skipdefaultpaths: continue
+          arg = '-L'+arg
           lflags.append(arg)
           self.logPrint('Found library directory: '+arg, 4, 'compilers')
           clibs.append(arg)
@@ -337,7 +359,7 @@ class Configure(config.base.Configure):
           if lib.startswith('-'): continue # perhaps the path was striped due to quotes?
           if lib.startswith('"') and lib.endswith('"') and lib.find(' ') == -1: lib = lib[1:-1]
           lib = os.path.abspath(lib)
-          if lib in ['/usr/lib','/lib','/usr/lib64','/lib64']: continue
+          if lib in skipdefaultpaths: continue
           if not lib in rpathflags:
             rpathflags.append(lib)
             self.logPrint('Found '+arg+' library: '+lib, 4, 'compilers')
@@ -446,29 +468,33 @@ class Configure(config.base.Configure):
     return
 
 
-  def checkCxxDialect(self):
-    """Determine the Cxx dialect supported by the compiler [and correspoding compiler option - if any].
-    -with-cxx-dialect can take options:
+  def checkCxxDialect(self,language,isGNU):
+    """Determine the CXX dialect supported by the compiler(language) [and correspoding compiler option - if any].
+    isGNU indicates if the compiler is g++.
+    -with-<lang>-dialect can take options:
       auto: use highest dialect configure can determine
       cxx17: [future?]
       cxx14: gnu++14 or c++14
       cxx11: gnu++11 or c++11
       0: disable CxxDialect check and use compiler default
     """
+    lang      = language.lower()
+    LANG      = language.upper()
     TESTCXX14 = 0
     TESTCXX11 = 0
-    cxxdialect = self.argDB.get('with-cxx-dialect','').upper().replace('X','+')
-    if cxxdialect in ['','0','NONE']: return
-    elif cxxdialect == 'AUTO':
+    with_lang_dialect = self.argDB.get('with-'+lang+'-dialect','').upper().replace('X','+') # configure value
+    if with_lang_dialect in ['','0','NONE']: return
+    elif with_lang_dialect == 'AUTO':
       TESTCXX14 = 1
       TESTCXX11 = 1
-    elif cxxdialect == 'C++14':
+    elif with_lang_dialect == 'C++14':
       TESTCXX14 = 1
-    elif cxxdialect == 'C++11':
+    elif with_lang_dialect == 'C++11':
       TESTCXX11 = 1
     else:
-      raise RuntimeError('Unknown C++ dialect: with-cxx-dialect=%s' % (self.argDB['with-cxx-dialect']))
+      raise RuntimeError('Unknown C++ dialect: with-'+lang+'-dialect=%s' % (self.argDB['with-'+lang+'-dialect']))
 
+    cxxdialect  = '' # tmp var storing test result
     # Test borrowed from Jack Poulson (Elemental)
     includes = """
           #include <random>
@@ -486,46 +512,53 @@ class Configure(config.base.Configure):
     body14 = """
           constexpr std::complex<double> I(0.0,1.0);
           auto lambda = [](auto x, auto y) {return x + y;};
-          return lambda(3,4);
+          return lambda(3,4) + (int)std::real(I);
           """
     self.setCompilers.saveLog()
-    self.setCompilers.pushLanguage('Cxx')
+    self.setCompilers.pushLanguage(language)
     if TESTCXX14:
       flags_to_try = ['']
-      if self.isGCXX: flags_to_try += ['-std=gnu++14']
+      if isGNU: flags_to_try += ['-std=gnu++14']
       else: flags_to_try += ['-std=c++14']
       for flag in flags_to_try:
         self.logWrite(self.setCompilers.restoreLog())
-        self.logPrint('checkCxxDialect: checking CXX14 with flag: '+flag)
+        self.logPrint('checkCxxDialect: checking CXX14 for '+language+ ' with flag: '+flag)
         self.setCompilers.saveLog()
         if self.setCompilers.checkCompilerFlag(flag, includes, body+body14):
-          self.setCompilers.CXXPPFLAGS += ' ' + flag
-          self.cxxdialect = 'C++14'
-          self.addDefine('HAVE_CXX_DIALECT_CXX14',1)
-          self.addDefine('HAVE_CXX_DIALECT_CXX11',1)
+          newflag = getattr(self.setCompilers,LANG+'FLAGS') + ' ' + flag # append flag to the old
+          setattr(self.setCompilers,LANG+'FLAGS',newflag)
+          newflag = getattr(self.setCompilers,LANG+'PPFLAGS') + ' ' + flag # append flag to the old
+          setattr(self.setCompilers,LANG+'PPFLAGS',newflag)
+          cxxdialect = 'C++14'
+          self.addDefine('HAVE_'+LANG+'_DIALECT_CXX14',1)
+          self.addDefine('HAVE_'+LANG+'_DIALECT_CXX11',1)
           break
 
-    if cxxdialect == 'C++14' and self.cxxdialect != 'C++14':
+    if with_lang_dialect == 'C++14' and cxxdialect != 'C++14':
       self.logWrite(self.setCompilers.restoreLog())
-      raise RuntimeError('Could not determine compiler flag for with-cxx-dialect=%s,\nIf you know the flag, set it with CXXFLAGS option')
-    elif not self.cxxdialect and TESTCXX11:
+      raise RuntimeError('Could not determine compiler flag for with-'+lang+'-dialect=%s,\nIf you know the flag, set it with '+LANG+'FLAGS option')
+    elif not cxxdialect and TESTCXX11:
       flags_to_try = ['']
-      if self.isGCXX: flags_to_try += ['-std=gnu++11']
+      if isGNU: flags_to_try += ['-std=gnu++11']
       else: flags_to_try += ['-std=c++11','-std=c++0x']
       for flag in flags_to_try:
         self.logWrite(self.setCompilers.restoreLog())
-        self.logPrint('checkCxxDialect: checking CXX11 with flag: '+flag)
+        self.logPrint('checkCxxDialect: checking CXX11 for '+language+ ' with flag: '+flag)
         self.setCompilers.saveLog()
         if self.setCompilers.checkCompilerFlag(flag, includes, body):
-          self.setCompilers.CXXPPFLAGS += ' ' + flag
-          self.cxxdialect = 'C++11'
-          self.addDefine('HAVE_CXX_DIALECT_CXX11',1)
+          newflag = getattr(self.setCompilers,LANG+'FLAGS') + ' ' + flag # append flag to the old
+          setattr(self.setCompilers,LANG+'FLAGS',newflag)
+          newflag = getattr(self.setCompilers,LANG+'PPFLAGS') + ' ' + flag # append flag to the old
+          setattr(self.setCompilers,LANG+'PPFLAGS',newflag)
+          cxxdialect = 'C++11'
+          self.addDefine('HAVE_'+LANG+'_DIALECT_CXX11',1)
           break
 
-    if cxxdialect == 'C++11' and self.cxxdialect != 'C++11':
+    if with_lang_dialect == 'C++11' and cxxdialect != 'C++11':
       self.logWrite(self.setCompilers.restoreLog())
-      raise RuntimeError('Could not determine compiler flag for with-cxx-dialect=%s,\nIf you know the flag, set it with CXXFLAGS option')
+      raise RuntimeError('Could not determine compiler flag for with-'+lang+'-dialect=%s,\nIf you know the flag, set it with '+LANG+'FLAGS option')
 
+    setattr(self,lang+'dialect',cxxdialect) # record the result
     self.setCompilers.popLanguage()
     self.logWrite(self.setCompilers.restoreLog())
     return
@@ -638,6 +671,7 @@ class Configure(config.base.Configure):
     # Parse output
     argIter = iter(output.split())
     cxxlibs = []
+    skipdefaultpaths = self.getSkipDefaultPaths()
     lflags  = []
     rpathflags = []
     try:
@@ -687,7 +721,7 @@ class Configure(config.base.Configure):
             self.logPrint('already in lflags: '+arg, 4, 'compilers')
           continue
         # Check for system libraries
-        m = re.match(r'^-l(ang.*|crt[0-9].o|crtbegin.o|c|gcc|gcc_ext(.[0-9]+)*|System|cygwin|crt[0-9].[0-9][0-9].[0-9].o)$', arg)
+        m = re.match(r'^-l(ang.*|crt[0-9].o|crtbegin.o|c|gcc|gcc_ext(.[0-9]+)*|System|cygwin|xlomp_ser|crt[0-9].[0-9][0-9].[0-9].o)$', arg)
         if m:
           self.logPrint('Skipping system library: '+arg, 4, 'compilers')
           continue
@@ -709,8 +743,9 @@ class Configure(config.base.Configure):
           continue
         m = re.match(r'^-L.*$', arg)
         if m:
-          arg = '-L'+os.path.abspath(arg[2:])
-          if arg in ['-L/usr/lib','-L/lib','-L/usr/lib64','-L/lib64']: continue
+          arg = os.path.abspath(arg[2:])
+          if arg in skipdefaultpaths: continue
+          arg = '-L'+arg
           if not arg in lflags:
             lflags.append(arg)
             self.logPrint('Found library directory: '+arg, 4, 'compilers')
@@ -722,7 +757,7 @@ class Configure(config.base.Configure):
           if lib.startswith('-'): continue # perhaps the path was striped due to quotes?
           if lib.startswith('"') and lib.endswith('"') and lib.find(' ') == -1: lib = lib[1:-1]
           lib = os.path.abspath(lib)
-          if lib in ['/usr/lib','/lib','/usr/lib64','/lib64']: continue
+          if lib in skipdefaultpaths: continue
           if not lib in rpathflags:
             rpathflags.append(lib)
             self.logPrint('Found '+arg+' library: '+lib, 4, 'compilers')
@@ -836,7 +871,7 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
     return found
 
   def checkFortranNameMangling(self):
-    '''Checks Fortran name mangling, and defines HAVE_FORTRAN_UNDERSCORE, HAVE_FORTRAN_NOUNDERSCORE, HAVE_FORTRAN_CAPS, or HAVE_FORTRAN_STDCALL'''
+    '''Checks Fortran name mangling, and defines HAVE_FORTRAN_UNDERSCORE, HAVE_FORTRAN_NOUNDERSCORE, HAVE_FORTRAN_CAPS'''
     self.manglerFuncs = {'underscore': ('void d1chk_(void);', 'void d1chk_(void){return;}\n', '       call d1chk()\n'),
                          'unchanged': ('void d1chk(void);', 'void d1chk(void){return;}\n', '       call d1chk()\n'),
                          'caps': ('void D1CHK(void);', 'void D1CHK(void){return;}\n', '       call d1chk()\n'),
@@ -866,10 +901,7 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
     elif self.fortranMangling == 'caps':
       self.addDefine('HAVE_FORTRAN_CAPS', 1)
     elif self.fortranMangling == 'stdcall':
-      self.addDefine('HAVE_FORTRAN_STDCALL', 1)
-      self.addDefine('STDCALL', '__stdcall')
-      self.addDefine('HAVE_FORTRAN_CAPS', 1)
-      self.addDefine('HAVE_FORTRAN_MIXED_STR_ARG', 1)
+      raise RuntimeError('Fortran STDCALL compilers are unsupported!\n')
     if config.setCompilers.Configure.isGfortran8plus(self.getCompiler('FC'), self.log):
       self.addDefine('FORTRAN_CHARLEN_T', 'size_t')
     else:
@@ -912,12 +944,13 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
       return
     skipfortranlibraries = 1
     self.setCompilers.saveLog()
-    cbody = "int main(int argc,char **args)\n{return 0;}\n";
+    asub=self.mangleFortranFunction("asub")
+    cbody = "extern void "+asub+"(void);\nint main(int argc,char **args)\n{\n  "+asub+"();\n  return 0;\n}\n";
     self.pushLanguage('FC')
     if self.checkLink(includes='#include <mpif.h>',body='      call MPI_Allreduce()\n'):
-      fbody = "subroutine asub()\n      print*,'testing'\n      call MPI_Allreduce()\n      return\n      end\n"
+      fbody = "      subroutine asub()\n      print*,'testing'\n      call MPI_Allreduce()\n      return\n      end\n"
     else:
-      fbody = "subroutine asub()\n      print*,'testing'\n      return\n      end\n"
+      fbody = "      subroutine asub()\n      print*,'testing'\n      return\n      end\n"
     self.popLanguage()
     try:
       if self.checkCrossLink(fbody,cbody,language1='FC',language2='C'):
@@ -955,6 +988,7 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
     self.setCompilers.LDFLAGS += ' -v'
     (output, returnCode) = self.outputLink('', '')
     if returnCode: raise RuntimeError('Unable to run linker to determine needed Fortran libraries')
+    output = self.filterLinkOutput(output)
     self.setCompilers.LDFLAGS = oldFlags
     self.popLanguage()
 
@@ -977,12 +1011,10 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
       loc2 = output.find(' -lpgf90rtl -lpgftnrtl')
       if loc2 >= -1:
         output = output[0:loc] + ' -lpgf90rtl -lpgftnrtl' + output[loc:]
-      self.addDefine('HAVE_PGF90_COMPILER','1')
     elif output.find(' -lpgf90rtl -lpgftnrtl') >= 0:
       # somehow doing this hacky thing appears to get rid of error with undefined __hpf_exit
       self.logPrint('Adding -lpgftnrtl before -lpgf90rtl in librarylist')
       output = output.replace(' -lpgf90rtl -lpgftnrtl',' -lpgftnrtl -lpgf90rtl -lpgftnrtl')
-      self.addDefine('HAVE_PGF90_COMPILER','1')
 
     # PGI: kill anything enclosed in single quotes
     if output.find('\'') >= 0:
@@ -1013,6 +1045,7 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
     argIter = iter(output.split())
     fincs   = []
     flibs   = []
+    skipdefaultpaths = self.getSkipDefaultPaths()
     fmainlibs = []
     lflags  = []
     rpathflags = []
@@ -1085,7 +1118,7 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
             self.logPrint('Already in lflags so skipping: '+arg, 4, 'compilers')
           continue
         # Check for system libraries
-        m = re.match(r'^-l(ang.*|crt[0-9].o|crtbegin.o|c|gcc|gcc_ext(.[0-9]+)*|System|cygwin|crt[0-9].[0-9][0-9].[0-9].o)$', arg)
+        m = re.match(r'^-l(ang.*|crt[0-9].o|crtbegin.o|c|gcc|gcc_ext(.[0-9]+)*|System|cygwin|xlomp_ser|crt[0-9].[0-9][0-9].[0-9].o)$', arg)
         if m:
           self.logPrint('Found system library therefore skipping: '+arg, 4, 'compilers')
           continue
@@ -1129,8 +1162,9 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
           continue
         m = re.match(r'^-L.*$', arg)
         if m:
-          arg = '-L'+os.path.abspath(arg[2:])
-          if arg in ['-L/usr/lib','-L/lib','-L/usr/lib64','-L/lib64']: continue
+          arg = os.path.abspath(arg[2:])
+          if arg in skipdefaultpaths: continue
+          arg = '-L'+arg
           if not arg in lflags:
             lflags.append(arg)
             self.logPrint('Found library directory: '+arg, 4, 'compilers')
@@ -1145,7 +1179,7 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
           if lib.startswith('-'): continue # perhaps the path was striped due to quotes?
           if lib.startswith('"') and lib.endswith('"') and lib.find(' ') == -1: lib = lib[1:-1]
           lib = os.path.abspath(lib)
-          if lib in ['/usr/lib','/lib','/usr/lib64','/lib64']: continue
+          if lib in skipdefaultpaths: continue
           if not lib in rpathflags:
             rpathflags.append(lib)
             self.logPrint('Found '+arg+' library: '+lib, 4, 'compilers')
@@ -1180,8 +1214,9 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
             #solaris gnu g77 has this extra P, here, not sure why it means
             if lib.startswith('P,'):lib = lib[2:]
             self.logPrint('Handling -Y option: '+lib, 4, 'compilers')
-            lib1 = '-L'+os.path.abspath(lib)
-            if lib1 in ['-L/usr/lib','-L/lib','-L/usr/lib64','-L/lib64']: continue
+            lib1 = os.path.abspath(lib)
+            if lib1 in skipdefaultpaths: continue
+            lib1 = '-L'+lib1
             flibs.append(lib1)
           continue
         if arg.startswith('COMPILER_PATH=') or arg.startswith('LIBRARY_PATH='):
@@ -1192,8 +1227,9 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
           founddir = 0
           for l in arg.split(':'):
             if os.path.isdir(l):
-              lib1 = '-L'+os.path.abspath(l)
-              if lib1 in ['-L/usr/lib','-L/lib','-L/usr/lib64','-L/lib64']: continue
+              lib1 = os.path.abspath(l)
+              if lib1 in skipdefaultpaths: continue
+              lib1 = '-L'+lib1
               if not arg in lflags:
                 flibs.append(lib1)
                 lflags.append(lib1)
@@ -1355,6 +1391,10 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
     # Fortran is handled in compilersfortran.py
     if hasattr(self, 'CUDAC'):
       languages.append('CUDA')
+    if hasattr(self, 'HIPC'):
+      languages.append('HIP')
+    if hasattr(self, 'SYCLCXX'):
+      languages.append('SYCL')
     for language in languages:
       self.generateDependencies[language] = 0
       self.setCompilers.saveLog()
@@ -1400,25 +1440,29 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
     }
     """
     self.setCompilers.pushLanguage('C')
-    flags_to_try = ['','-std=c99','-std=gnu99','-std=c11''-std=gnu11','-c99']
+    flags_to_try = ['','-std=c99','-std=gnu99','-std=c11','-std=gnu11','-c99']
     for flag in flags_to_try:
       self.setCompilers.saveLog()
       if self.setCompilers.checkCompilerFlag(flag, includes, body):
         self.logWrite(self.setCompilers.restoreLog())
         self.c99flag = flag
+        self.setCompilers.CPPFLAGS += ' ' + flag
         self.framework.logPrint('Accepted C99 compile flag: '+flag)
-        if self.c99flag == '': self.addDefine('HAVE_C99', 1)
         break
       else:
         self.logWrite(self.setCompilers.restoreLog())
     self.setCompilers.popLanguage()
-
+    if self.c99flag is None:
+      if self.isGCC: additionalErrorMsg = '\nPerhaps you have an Intel compiler environment or module set that is interferring with the GNU compilers.\nTry removing that environment or module and running ./configure again.'
+      else: additionalErrorMsg = ''
+      raise RuntimeError('PETSc requires c99 compiler! Configure could not determine compatible compiler flag.\nPerhaps you can specify it via CFLAGS.'+additionalErrorMsg)
     return
 
   def configure(self):
     import config.setCompilers
     if hasattr(self.setCompilers, 'CC'):
       self.isGCC = config.setCompilers.Configure.isGNU(self.setCompilers.CC, self.log)
+      self.executeTest(self.checkC99Flag)
       self.executeTest(self.checkRestrict,['C'])
       self.executeTest(self.checkCFormatting)
       self.executeTest(self.checkCInline)
@@ -1426,17 +1470,16 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
       if self.argDB['with-clib-autodetect']:
         self.executeTest(self.checkCLibraries)
       self.executeTest(self.checkDependencyGenerationFlag)
-      self.executeTest(self.checkC99Flag)
     else:
       self.isGCC = 0
     if hasattr(self.setCompilers, 'CXX'):
       self.isGCXX = config.setCompilers.Configure.isGNU(self.setCompilers.CXX, self.log)
       self.executeTest(self.checkRestrict,['Cxx'])
+      self.executeTest(self.checkCxxDialect,['Cxx',self.isGCXX])
       self.executeTest(self.checkCxxOptionalExtensions)
       self.executeTest(self.checkCxxInline)
       if self.argDB['with-cxxlib-autodetect']:
         self.executeTest(self.checkCxxLibraries)
-      self.executeTest(self.checkCxxDialect)
       # To skip Sun C++ compiler warnings/errors
       if config.setCompilers.Configure.isSun(self.setCompilers.CXX, self.log):
         self.addDefine('HAVE_SUN_CXX', 1)
@@ -1449,6 +1492,15 @@ Otherwise you need a different combination of C, C++, and Fortran compilers")
         self.executeTest(self.checkFortranLibraries)
       if hasattr(self.setCompilers, 'CXX'):
         self.executeTest(self.checkFortranLinkingCxx)
+
+    if hasattr(self.setCompilers, 'CUDAC'):
+      self.executeTest(self.checkCxxDialect,['CUDA',False]) # Not GNU
+
+    if hasattr(self.setCompilers, 'HIPC'):
+      self.executeTest(self.checkCxxDialect,['HIP',False]) # Not GNU
+    if hasattr(self.setCompilers, 'SYCL'):
+        #Placeholder in case further checks are needed
+        pass
     self.no_configure()
     return
 

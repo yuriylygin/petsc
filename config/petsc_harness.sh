@@ -6,6 +6,7 @@ TIMEOUT=60
 
 if test "$PWD"!=`dirname $0`; then
   cd `dirname $0`
+  abspath_scriptdir=$PWD
 fi
 if test -d "${rundir}" && test -n "${rundir}"; then
   rm -f ${rundir}/*.tmp ${rundir}/*.err ${rundir}/*.out
@@ -30,7 +31,8 @@ Usage: $0 [options]
 
 OPTIONS
   -a <args> ......... Override default arguments
-  -c <cleanup> ...... Cleanup (remove generated files)
+  -c ................ Cleanup (remove generated files)
+  -C ................ Compile
   -d ................ Launch in debugger
   -e <args> ......... Add extra arguments to default
   -f ................ force attempt to run test that would otherwise be skipped
@@ -41,7 +43,9 @@ OPTIONS
   -m ................ Update results using petscdiff
   -M ................ Update alt files using petscdiff
   -o <arg> .......... Output format: 'interactive', 'err_only'
+  -p ................ Print command:  Print first command and exit
   -t ................ Override the default timeout (default=$TIMEOUT sec)
+  -U ................ run cUda-memcheck
   -V ................ run Valgrind
   -v ................ Verbose: Print commands
 EOF
@@ -55,26 +59,36 @@ EOF
 output_fmt="interactive"
 verbose=false
 cleanup=false
+compile=false
 debugger=false
+printcmd=false
+mpiexec_function=false
 force=false
 diff_flags=""
-while getopts "a:cde:fhjJ:mMn:o:t:vV" arg
+while getopts "a:cCde:fhjJ:mMn:o:pt:UvV" arg
 do
   case $arg in
     a ) args="$OPTARG"       ;;  
     c ) cleanup=true         ;;  
+    C ) compile=true         ;;  
     d ) debugger=true        ;;  
     e ) extra_args="$OPTARG" ;;  
     f ) force=true           ;;
     h ) print_usage; exit    ;;  
     n ) nsize="$OPTARG"      ;;  
-    j ) diff_flags="-j"      ;;  
-    J ) diff_flags="-J $OPTARG" ;;  
-    m ) diff_flags="-m"      ;;  
-    M ) diff_flags="-M"      ;;  
+    j ) diff_flags=$diff_flags" -j"      ;;  
+    J ) diff_flags=$diff_flags" -J $OPTARG" ;;  
+    m ) diff_flags=$diff_flags" -m"      ;;  
+    M ) diff_flags=$diff_flags" -M"      ;;  
     o ) output_fmt=$OPTARG   ;;  
+    p ) printcmd=true        ;;
     t ) TIMEOUT=$OPTARG      ;;  
-    V ) mpiexec="petsc_mpiexec_valgrind $mpiexec" ;;  
+    U ) mpiexec="petsc_mpiexec_cudamemcheck $mpiexec" 
+        mpiexec_function=true
+        ;;  
+    V ) mpiexec="petsc_mpiexec_valgrind $mpiexec"
+        mpiexec_function=true
+        ;;  
     v ) verbose=true         ;;  
     *)  # To take care of any extra args
       if test -n "$OPTARG"; then
@@ -111,6 +125,16 @@ total=0
 todo=-1; skip=-1
 job_level=0
 
+if $compile; then
+   curexec=`basename ${exec}`
+   fullexec=${abspath_scriptdir}/${curexec}
+   maketarget=`echo ${fullexec} | sed "s#${petsc_dir}/*##"`
+   (cd $petsc_dir && make -f gmakefile.test ${maketarget})
+fi
+
+###
+##   Rest of code is functions
+#
 function petsc_report_tapoutput() {
   notornot=$1
   test_label=$2
@@ -133,6 +157,19 @@ function petsc_report_tapoutput() {
   fi
 }
 
+function printcmd() {
+  # Print command that can be run from PETSC_DIR
+  cmd="$1"
+  basedir=`dirname ${PWD} | sed "s#${petsc_dir}/##"`
+  modcmd=`echo ${cmd} | sed -e "s#\.\.#${basedir}#" | sed s#\>.*##`
+  if $mpiexec_function; then
+     # Have to expand valgrind/cudamemchk
+     modcmd=`eval "$modcmd"`
+  fi
+  printf "${modcmd}\n" 
+  exit
+}
+
 function petsc_testrun() {
   # First arg = Basic command
   # Second arg = stdout file
@@ -146,12 +183,24 @@ function petsc_testrun() {
     cmd="$1 2>&1 | cat > $2"
   fi
   echo "$cmd" > ${tlabel}.sh; chmod 755 ${tlabel}.sh
+  if $printcmd; then
+     printcmd "$cmd"
+  fi
 
   eval "{ time -p $cmd ; } 2>> timing.out"
   cmd_res=$?
+  #  If it is a lack of GPU resources or MPI failure (Intel) then try once more
+  #  See: src/sys/error/err.c
+  if [ $cmd_res -eq 96 -o $cmd_res -eq 97 -o $cmd_res -eq 98 ]; then
+    printf "# retrying ${tlabel}\n" | tee -a ${testlogerrfile}
+    sleep 3
+    eval "{ time -p $cmd ; } 2>> timing.out"
+    cmd_res=$?
+  fi
   touch "$2" "$3"
-  # ETIMEDOUT=110 on most systems (used by Open MPI 3.0).  MPICH uses
-  # 255.  Earlier Open MPI returns 1 but outputs about MPIEXEC_TIMEOUT.
+  # It appears current MPICH and OpenMPI just shut down the job executation and do not return an error code to the executable
+  # ETIMEDOUT=110 was used by OpenMPI 3.0.  MPICH used 255
+  # Earlier OpenMPI versions returned 1 and the error string
   if [ $cmd_res -eq 110 -o $cmd_res -eq 255 ] || \
         fgrep -q -s 'APPLICATION TIMED OUT' "$2" "$3" || \
         fgrep -q -s MPIEXEC_TIMEOUT "$2" "$3" || \
@@ -186,7 +235,10 @@ function petsc_testrun() {
       # mpi_abort go to stderr which throws this test off.  Show both
       # with stdout first
       awk '{print "#\t" $0}' < $2 | tee -a ${testlogerrfile}
-      awk '{print "#\t" $0}' < $3 | tee -a ${testlogerrfile}
+      # if statement is for diff tests
+      if test "$2" != "$3"; then
+        awk '{print "#\t" $0}' < $3 | tee -a ${testlogerrfile}
+      fi
     fi
     let failed=$failed+1
     failures="$failures $tlabel"
@@ -223,13 +275,31 @@ function petsc_testend() {
   fi
 }
 
+function petsc_mpiexec_cudamemcheck() {
+  _mpiexec=$1;shift
+  npopt=$1;shift
+  np=$1;shift
+
+  cudamemchk="cuda-memcheck"
+
+  $_mpiexec $npopt $np $cudamemchk $*
+}
+
 function petsc_mpiexec_valgrind() {
-  mpiexec=$1;shift
+  # some systems set $1 to be the function name
+  if [[ $1 == 'petsc_mpiexec_valgrind' ]]; then
+    shift
+  fi
+  _mpiexec=$1;shift
   npopt=$1;shift
   np=$1;shift
 
   valgrind="valgrind -q --tool=memcheck --leak-check=yes --num-callers=20 --track-origins=yes --suppressions=$petsc_bindir/maint/petsc-val.supp --error-exitcode=10"
 
-  $mpiexec $npopt $np $valgrind $*
+  if $printcmd; then
+     echo $_mpiexec $npopt $np $valgrind "$@"
+  else
+     $_mpiexec $npopt $np $valgrind "$@"
+  fi
 }
 export LC_ALL=C

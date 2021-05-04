@@ -3,7 +3,7 @@
       Some PETSc utility routines to add simple parallel IO capabilities
 */
 #include <petscsys.h>
-
+#include <petsc/private/logimpl.h>
 #include <errno.h>
 
 /*@C
@@ -40,7 +40,7 @@ PetscErrorCode  PetscFOpen(MPI_Comm comm,const char name[],const char mode[],FIL
   char           fname[PETSC_MAX_PATH_LEN],tname[PETSC_MAX_PATH_LEN];
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank) {
     PetscBool isstdout,isstderr;
     ierr = PetscStrcmp(name,"stdout",&isstdout);CHKERRQ(ierr);
@@ -59,7 +59,7 @@ PetscErrorCode  PetscFOpen(MPI_Comm comm,const char name[],const char mode[],FIL
       fd   = fopen(fname,mode);
       if (!fd) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_FILE_OPEN,"Unable to open file %s\n",fname);
     }
-  } else fd = 0;
+  } else fd = NULL;
   *fp = fd;
   PetscFunctionReturn(0);
 }
@@ -89,7 +89,7 @@ PetscErrorCode  PetscFClose(MPI_Comm comm,FILE *fd)
   int            err;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank && fd != PETSC_STDOUT && fd != PETSC_STDERR) {
     err = fclose(fd);
     if (err) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_SYS,"fclose() failed on file");
@@ -123,7 +123,7 @@ PetscErrorCode PetscPClose(MPI_Comm comm,FILE *fd)
   PetscMPIInt    rank;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank) {
     char buf[1024];
     while (fgets(buf,1024,fd)) ; /* wait till it prints everything */
@@ -199,9 +199,9 @@ PetscErrorCode  PetscPOpen(MPI_Comm comm,const char machine[],const char program
 
   ierr = PetscStrreplace(comm,command,commandt,1024);CHKERRQ(ierr);
 
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
   if (!rank) {
-    ierr = PetscInfo1(0,"Running command :%s\n",commandt);CHKERRQ(ierr);
+    ierr = PetscInfo1(NULL,"Running command :%s\n",commandt);CHKERRQ(ierr);
     if (!(fd = popen(commandt,mode))) SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_LIB,"Cannot run command %s",commandt);
     if (fp) *fp = fd;
   }

@@ -8,11 +8,12 @@
 #define petscsectionviewfromoptions_  petscsectionviewfromoptions
 #endif
 
-PETSC_EXTERN void PETSC_STDCALL petscsectionviewfromoptions_(PetscSection *ao,PetscObject obj,char* type PETSC_MIXED_LEN(len),PetscErrorCode *ierr PETSC_END_LEN(len))
+PETSC_EXTERN void petscsectionviewfromoptions_(PetscSection *ao,PetscObject obj,char* type,PetscErrorCode *ierr,PETSC_FORTRAN_CHARLEN_T len)
 {
   char *t;
 
   FIXCHAR(type,len,t);
+  CHKFORTRANNULLOBJECT(obj);
   *ierr = PetscSectionViewFromOptions(*ao,obj,t);if (*ierr) return;
   FREECHAR(type,t);
 }

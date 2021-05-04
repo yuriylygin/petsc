@@ -34,9 +34,6 @@ typedef enum {READ=1, WRITE=2, READ_WRITE=3} AccessMode;
 */
 static PetscErrorCode PCSetUp_SVD(PC pc)
 {
-#if defined(PETSC_MISSING_LAPACK_GESVD)
-  SETERRQ(PetscObjectComm((PetscObject)pc),PETSC_ERR_SUP,"GESVD - Lapack routine is unavailable\nNot able to provide singular value estimates.");
-#else
   PC_SVD         *jac = (PC_SVD*)pc->data;
   PetscErrorCode ierr;
   PetscScalar    *a,*u,*v,*d,*work;
@@ -46,7 +43,7 @@ static PetscErrorCode PCSetUp_SVD(PC pc)
 
   PetscFunctionBegin;
   ierr = MatDestroy(&jac->A);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(((PetscObject)pc->pmat)->comm,&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(((PetscObject)pc->pmat)->comm,&size);CHKERRMPI(ierr);
   if (size > 1) {
     Mat redmat;
 
@@ -145,7 +142,6 @@ static PetscErrorCode PCSetUp_SVD(PC pc)
 #endif
   ierr = PetscFree(work);CHKERRQ(ierr);
   PetscFunctionReturn(0);
-#endif
 }
 
 static PetscErrorCode PCSVDGetVec(PC pc,PCSide side,AccessMode amode,Vec x,Vec *xred)
@@ -155,7 +151,7 @@ static PetscErrorCode PCSVDGetVec(PC pc,PCSide side,AccessMode amode,Vec x,Vec *
   PetscMPIInt    size;
 
   PetscFunctionBegin;
-  ierr  = MPI_Comm_size(PetscObjectComm((PetscObject)pc),&size);CHKERRQ(ierr);
+  ierr  = MPI_Comm_size(PetscObjectComm((PetscObject)pc),&size);CHKERRMPI(ierr);
   *xred = NULL;
   switch (side) {
   case PC_LEFT:
@@ -192,7 +188,7 @@ static PetscErrorCode PCSVDRestoreVec(PC pc,PCSide side,AccessMode amode,Vec x,V
   PetscMPIInt    size;
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)pc),&size);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(PetscObjectComm((PetscObject)pc),&size);CHKERRMPI(ierr);
   switch (side) {
   case PC_LEFT:
     if (size != 1 && amode & WRITE) {
@@ -400,7 +396,7 @@ PETSC_EXTERN PetscErrorCode PCCreate_SVD(PC pc)
   pc->ops->destroy         = PCDestroy_SVD;
   pc->ops->setfromoptions  = PCSetFromOptions_SVD;
   pc->ops->view            = PCView_SVD;
-  pc->ops->applyrichardson = 0;
+  pc->ops->applyrichardson = NULL;
   PetscFunctionReturn(0);
 }
 

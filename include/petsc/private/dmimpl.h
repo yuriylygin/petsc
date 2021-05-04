@@ -10,7 +10,19 @@
 
 PETSC_EXTERN PetscBool DMRegisterAllCalled;
 PETSC_EXTERN PetscErrorCode DMRegisterAll(void);
-typedef PetscErrorCode (*NullSpaceFunc)(DM dm, PetscInt field, MatNullSpace *nullSpace);
+typedef PetscErrorCode (*NullSpaceFunc)(DM dm, PetscInt origField, PetscInt field, MatNullSpace *nullSpace);
+
+typedef struct _PetscHashAuxKey
+{
+  DMLabel  label;
+  PetscInt value;
+} PetscHashAuxKey;
+
+#define PetscHashAuxKeyHash(key) PetscHashCombine(PetscHashPointer((key).label),PetscHashInt((key).value))
+
+#define PetscHashAuxKeyEqual(k1,k2) (((k1).label == (k2).label) ? ((k1).value == (k2).value) : 0)
+
+PETSC_HASH_MAP(HMapAux, PetscHashAuxKey, Vec, PetscHashAuxKeyHash, PetscHashAuxKeyEqual, NULL)
 
 typedef struct _DMOps *DMOps;
 struct _DMOps {
@@ -71,6 +83,7 @@ struct _DMOps {
   PetscErrorCode (*projectfunctionlabellocal)(DM,PetscReal,DMLabel,PetscInt,const PetscInt[],PetscInt,const PetscInt[],PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal[],PetscInt,PetscScalar *,void *),void **,InsertMode,Vec);
   PetscErrorCode (*projectfieldlocal)(DM,PetscReal,Vec,void(**)(PetscInt,PetscInt,PetscInt,const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],PetscReal,const PetscReal[],PetscInt,const PetscScalar[],PetscScalar[]),InsertMode,Vec);
   PetscErrorCode (*projectfieldlabellocal)(DM,PetscReal,DMLabel,PetscInt,const PetscInt[],PetscInt,const PetscInt[],Vec,void(**)(PetscInt,PetscInt,PetscInt,const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],PetscReal,const PetscReal[],PetscInt,const PetscScalar[],PetscScalar[]),InsertMode,Vec);
+  PetscErrorCode (*projectbdfieldlabellocal)(DM,PetscReal,DMLabel,PetscInt,const PetscInt[],PetscInt,const PetscInt[],Vec,void(**)(PetscInt,PetscInt,PetscInt,const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],const PetscInt[],const PetscInt[],const PetscScalar[],const PetscScalar[],const PetscScalar[],PetscReal,const PetscReal[],const PetscReal[],PetscInt,const PetscScalar[],PetscScalar[]),InsertMode,Vec);
   PetscErrorCode (*computel2diff)(DM,PetscReal,PetscErrorCode(**)(PetscInt, PetscReal,const PetscReal [], PetscInt, PetscScalar *, void *), void **, Vec, PetscReal *);
   PetscErrorCode (*computel2gradientdiff)(DM,PetscReal,PetscErrorCode(**)(PetscInt,PetscReal,const PetscReal [],const PetscReal[],PetscInt, PetscScalar *,void *),void **,Vec,const PetscReal[],PetscReal *);
   PetscErrorCode (*computel2fielddiff)(DM,PetscReal,PetscErrorCode(**)(PetscInt, PetscReal,const PetscReal [], PetscInt, PetscScalar *, void *), void **, Vec, PetscReal *);
@@ -159,6 +172,7 @@ typedef struct _n_Field {
   PetscObject disc;         /* Field discretization, or a PetscContainer with the field name */
   DMLabel     label;        /* Label defining the domain of definition of the field */
   PetscBool   adjacency[2]; /* Flags for defining variable influence (adjacency) for each field [use cone() or support() first, use the transitive closure] */
+  PetscBool   avoidTensor;  /* Flag to avoid defining field over tensor cells */
 } RegionField;
 
 typedef struct _n_Space {
@@ -166,6 +180,18 @@ typedef struct _n_Space {
   DMLabel label;  /* Label defining the domain of definition of the discretization */
   IS      fields; /* Map from DS field numbers to original field numbers in the DM */
 } DMSpace;
+
+struct _p_UniversalLabel {
+  DMLabel    label;   /* The universal label */
+  PetscInt   Nl;      /* Number of labels encoded */
+  char     **names;   /* The label names */
+  PetscInt  *indices; /* The original indices in the input DM */
+  PetscInt   Nv;      /* Total number of values in all the labels */
+  PetscInt  *bits;    /* Starting bit for values of each label */
+  PetscInt  *masks;   /* Masks to pull out label value bits for each label */
+  PetscInt  *offsets; /* Starting offset for label values for each label */
+  PetscInt  *values;  /* Original label values before renumbering */
+};
 
 PETSC_INTERN PetscErrorCode DMDestroyLabelLinkList_Internal(DM);
 
@@ -180,9 +206,9 @@ struct _p_DM {
   DMWorkLink              workin,workout;
   DMLabelLink             labels;            /* Linked list of labels */
   DMLabel                 depthLabel;        /* Optimized access to depth label */
+  DMLabel                 celltypeLabel;     /* Optimized access to celltype label */
   void                    *ctx;    /* a user context */
   PetscErrorCode          (*ctxdestroy)(void**);
-  Vec                     x;       /* location at which the functions/Jacobian are computed */
   ISColoringType          coloringtype;
   MatFDColoring           fd;
   VecType                 vectype;  /* type of vector created with DMCreateLocalVector() and DMCreateGlobalVector() */
@@ -205,6 +231,8 @@ struct _p_DM {
   DMLocalToGlobalHookLink ltoghook;
   /* Topology */
   PetscInt                dim;                  /* The topological dimension */
+  /* Auxiliary data */
+  PetscHMapAux            auxData;              /* Auxiliary DM and Vec for region denoted by the key */
   /* Flexible communication */
   PetscSF                 sfMigration;          /* SF for point distribution created during distribution */
   PetscSF                 sf;                   /* SF for parallel point overlap */
@@ -236,7 +264,6 @@ struct _p_DM {
   PetscReal              *L, *maxCell;          /* Size of periodic box and max cell size for determining periodicity */
   DMBoundaryType         *bdtype;               /* Indicates type of topological boundary */
   /* Null spaces -- of course I should make this have a variable number of fields */
-  /*   I now believe this might not be the right way: see below */
   NullSpaceFunc           nullspaceConstructors[10];
   NullSpaceFunc           nearnullspaceConstructors[10];
   /* Fields are represented by objects */
@@ -268,6 +295,7 @@ PETSC_EXTERN PetscLogEvent DM_CreateRestriction;
 PETSC_EXTERN PetscLogEvent DM_CreateInjection;
 PETSC_EXTERN PetscLogEvent DM_CreateMatrix;
 PETSC_EXTERN PetscLogEvent DM_Load;
+PETSC_EXTERN PetscLogEvent DM_AdaptInterpolator;
 
 PETSC_EXTERN PetscErrorCode DMCreateGlobalVector_Section_Private(DM,Vec*);
 PETSC_EXTERN PetscErrorCode DMCreateLocalVector_Section_Private(DM,Vec*);
@@ -467,5 +495,12 @@ PETSC_EXTERN PetscErrorCode DMGetBasisTransformVec_Internal(DM, Vec *);
 PETSC_INTERN PetscErrorCode DMConstructBasisTransform_Internal(DM);
 
 PETSC_INTERN PetscErrorCode DMGetLocalBoundingIndices_DMDA(DM, PetscReal[], PetscReal[]);
+PETSC_INTERN PetscErrorCode DMSetField_Internal(DM, PetscInt, DMLabel, PetscObject);
+
+PETSC_EXTERN PetscErrorCode DMUniversalLabelCreate(DM, DMUniversalLabel *);
+PETSC_EXTERN PetscErrorCode DMUniversalLabelDestroy(DMUniversalLabel *);
+PETSC_EXTERN PetscErrorCode DMUniversalLabelGetLabel(DMUniversalLabel, DMLabel *);
+PETSC_EXTERN PetscErrorCode DMUniversalLabelCreateLabels(DMUniversalLabel, PetscBool, DM);
+PETSC_EXTERN PetscErrorCode DMUniversalLabelSetLabelValue(DMUniversalLabel, DM, PetscBool, PetscInt, PetscInt);
 
 #endif

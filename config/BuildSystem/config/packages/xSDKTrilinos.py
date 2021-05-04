@@ -86,10 +86,8 @@ class Configure(config.package.CMakePackage):
     args.append('-DTPL_PETSC_INCLUDE_DIRS='+os.path.join(self.petscdir.dir,'include'))
 
     if self.compilerFlags.debugging:
-      args.append('-DCMAKE_BUILD_TYPE=DEBUG')
       args.append('-DxSDKTrilinos_ENABLE_DEBUG=YES')
     else:
-      args.append('-DCMAKE_BUILD_TYPE=RELEASE')
       args.append('-DxSDKTrilinos_ENABLE_DEBUG=NO')
 
     args.append('-DxSDKTrilinos_EXTRA_LINK_FLAGS="'+self.libraries.toStringNoDupes(self.flibs.lib+self.cxxlibs.lib+self.mathlib.lib)+' '+self.compilers.LIBS+'"')
@@ -102,7 +100,7 @@ class Configure(config.package.CMakePackage):
     if not self.argDB['with-batch']:
       try:
         self.logPrintBox('Testing xSDKTrilinos; this may take several minutes')
-        output,err,ret  = config.package.CMakePackage.executeShellCommand('cd '+os.path.join(self.packageDir,'petsc-build')+' && '+self.cmake.ctest,timeout=50, log = self.log)
+        output,err,ret  = config.package.CMakePackage.executeShellCommand('cd '+os.path.join(self.packageDir,'petsc-build')+' && '+self.cmake.ctest,timeout=60, log = self.log)
         output = output+err
         self.log.write(output)
         if output.find('Failure') > -1:

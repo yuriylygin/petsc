@@ -14,7 +14,7 @@
 
   Level: intermediate
 
-.seealso: DMSTAG, DMDAGetBoundaryTypes()
+.seealso: DMSTAG
 @*/
 PetscErrorCode DMStagGetBoundaryTypes(DM dm,DMBoundaryType *boundaryTypeX,DMBoundaryType *boundaryTypeY,DMBoundaryType *boundaryTypeZ)
 {
@@ -25,7 +25,7 @@ PetscErrorCode DMStagGetBoundaryTypes(DM dm,DMBoundaryType *boundaryTypeX,DMBoun
   PetscFunctionBegin;
   PetscValidHeaderSpecificType(dm,DM_CLASSID,1,DMSTAG);
   ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
-  if (boundaryTypeX           ) *boundaryTypeX = stag->boundaryType[0];
+  if (boundaryTypeX) *boundaryTypeX = stag->boundaryType[0];
   if (boundaryTypeY && dim > 1) *boundaryTypeY = stag->boundaryType[1];
   if (boundaryTypeZ && dim > 2) *boundaryTypeZ = stag->boundaryType[2];
   PetscFunctionReturn(0);
@@ -37,6 +37,7 @@ static PetscErrorCode DMStagGetProductCoordinateArrays_Private(DM dm,void* arrX,
   PetscInt       dim,d,dofCheck[DMSTAG_MAX_STRATA],s;
   DM             dmCoord;
   void*          arr[DMSTAG_MAX_DIM];
+  PetscBool      checkDof;
 
   PetscFunctionBegin;
   PetscValidHeaderSpecific(dm,DM_CLASSID,1);
@@ -53,12 +54,16 @@ static PetscErrorCode DMStagGetProductCoordinateArrays_Private(DM dm,void* arrX,
     if (!isProduct) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"Coordinate DM is not of type DMPRODUCT");
   }
   for (s=0; s<DMSTAG_MAX_STRATA; ++s) dofCheck[s] = 0;
+  checkDof = PETSC_FALSE;
   for (d=0; d<dim; ++d) {
     DM        subDM;
     DMType    dmType;
     PetscBool isStag;
     PetscInt  dof[DMSTAG_MAX_STRATA],subDim;
     Vec       coord1d_local;
+
+    /* Ignore unrequested arrays */
+    if (!arr[d]) continue;
 
     ierr = DMProductGetDM(dmCoord,d,&subDM);CHKERRQ(ierr);
     if (!subDM) SETERRQ1(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"Coordinate DM is missing sub DM %D",d);
@@ -68,8 +73,9 @@ static PetscErrorCode DMStagGetProductCoordinateArrays_Private(DM dm,void* arrX,
     ierr = PetscStrcmp(DMSTAG,dmType,&isStag);CHKERRQ(ierr);
     if (!isStag) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"Coordinate sub-DM is not of type DMSTAG");
     ierr = DMStagGetDOF(subDM,&dof[0],&dof[1],&dof[2],&dof[3]);CHKERRQ(ierr);
-    if (d == 0) {
+    if (!checkDof) {
       for (s=0; s<DMSTAG_MAX_STRATA; ++s) dofCheck[s] = dof[s];
+      checkDof = PETSC_TRUE;
     } else {
       for (s=0; s<DMSTAG_MAX_STRATA; ++s) {
         if (dofCheck[s] != dof[s]) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"Coordinate sub-DMs have different dofs");
@@ -461,7 +467,7 @@ PetscErrorCode DMStagGetLocalSizes(DM dm,PetscInt* m,PetscInt* n,PetscInt* p)
 
   Level: beginner
 
-.seealso: DMSTAG, DMStagGetGlobalSizes(), DMStagGetLocalSize(), DMStagSetNumRank(), DMDAGetInfo()
+.seealso: DMSTAG, DMStagGetGlobalSizes(), DMStagGetLocalSize(), DMStagSetNumRanks(), DMDAGetInfo()
 @*/
 PetscErrorCode DMStagGetNumRanks(DM dm,PetscInt *nRanks0,PetscInt *nRanks1,PetscInt *nRanks2)
 {
@@ -472,6 +478,34 @@ PetscErrorCode DMStagGetNumRanks(DM dm,PetscInt *nRanks0,PetscInt *nRanks1,Petsc
   if (nRanks0) *nRanks0 = stag->nRanks[0];
   if (nRanks1) *nRanks1 = stag->nRanks[1];
   if (nRanks2) *nRanks2 = stag->nRanks[2];
+  PetscFunctionReturn(0);
+}
+
+/*@C
+  DMStagGetEntries - get number of native entries in the global representation
+
+  Not Collective
+
+  Input Parameter:
+. dm - the DMStag object
+
+  Output Parameters:
+. entries - number of rank-native entries in the global representation
+
+  Note:
+  This is the number of entries on this rank for a global vector associated with dm.
+
+  Level: developer
+
+.seealso: DMSTAG, DMStagGetDOF(), DMStagGetEntriesPerElement(), DMCreateLocalVector()
+@*/
+PetscErrorCode DMStagGetEntries(DM dm,PetscInt *entries)
+{
+  const DM_Stag * const stag = (DM_Stag*)dm->data;
+
+  PetscFunctionBegin;
+  PetscValidHeaderSpecificType(dm,DM_CLASSID,1,DMSTAG);
+  if (entries) *entries = stag->entries;
   PetscFunctionReturn(0);
 }
 
@@ -596,7 +630,7 @@ PetscErrorCode DMStagGetOwnershipRanges(DM dm,const PetscInt *lx[],const PetscIn
 
   Collective
 
-  Input Parameters
+  Input Parameters:
 + dm - the DMStag object
 - dof0,dof1,dof2,dof3 - number of dof on each stratum in the new DMStag
 
@@ -605,6 +639,9 @@ PetscErrorCode DMStagGetOwnershipRanges(DM dm,const PetscInt *lx[],const PetscIn
 
   Notes:
   Dof supplied for strata too big for the dimension are ignored; these may be set to 0.
+  For example, for a 2-dimensional DMStag, dof2 sets the number of dof per element,
+  and dof3 is unused. For a 3-dimensional DMStag, dof3 sets the number of dof per element.
+
   In contrast to DMDACreateCompatibleDMDA(), coordinates are not reused.
 
   Level: intermediate
@@ -614,24 +651,11 @@ PetscErrorCode DMStagGetOwnershipRanges(DM dm,const PetscInt *lx[],const PetscIn
 PetscErrorCode DMStagCreateCompatibleDMStag(DM dm,PetscInt dof0,PetscInt dof1,PetscInt dof2,PetscInt dof3,DM *newdm)
 {
   PetscErrorCode  ierr;
-  const DM_Stag * const stag = (DM_Stag*)dm->data;
-  PetscInt        dim;
 
   PetscFunctionBegin;
   PetscValidHeaderSpecificType(dm,DM_CLASSID,1,DMSTAG);
-  ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
-  switch (dim) {
-    case 1:
-      ierr = DMStagCreate1d(PetscObjectComm((PetscObject)dm),stag->boundaryType[0],stag->N[0],dof0,dof1,stag->stencilType,stag->stencilWidth,NULL,newdm);CHKERRQ(ierr);
-      break;
-    case 2:
-      ierr = DMStagCreate2d(PetscObjectComm((PetscObject)dm),stag->boundaryType[0],stag->boundaryType[1],stag->N[0],stag->N[1],stag->nRanks[0],stag->nRanks[1],dof0,dof1,dof2,stag->stencilType,stag->stencilWidth,NULL,NULL,newdm);CHKERRQ(ierr);
-      break;
-    case 3:
-      ierr = DMStagCreate3d(PetscObjectComm((PetscObject)dm),stag->boundaryType[0],stag->boundaryType[1],stag->boundaryType[2],stag->N[0],stag->N[1],stag->N[2],stag->nRanks[0],stag->nRanks[1],stag->nRanks[2],dof0,dof1,dof2,dof3,stag->stencilType,stag->stencilWidth,NULL,NULL,NULL,newdm);CHKERRQ(ierr);
-      break;
-    default: SETERRQ1(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"Unsupported dimension %D",dim);
-  }
+  ierr = DMStagDuplicateWithoutSetup(dm,PetscObjectComm((PetscObject)dm),newdm);CHKERRQ(ierr);
+  ierr = DMStagSetDOF(*newdm,dof0,dof1,dof2,dof3);CHKERRQ(ierr);
   ierr = DMSetUp(*newdm);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
@@ -664,15 +688,13 @@ PetscErrorCode DMStagGetLocationSlot(DM dm,DMStagStencilLocation loc,PetscInt c,
 
   PetscFunctionBegin;
   PetscValidHeaderSpecificType(dm,DM_CLASSID,1,DMSTAG);
-#if defined(PETSC_USE_DEBUG)
-  {
+  if (PetscDefined(USE_DEBUG)) {
     PetscErrorCode ierr;
     PetscInt       dof;
     ierr = DMStagGetLocationDOF(dm,loc,&dof);CHKERRQ(ierr);
     if (dof < 1) SETERRQ1(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"Location %s has no dof attached",DMStagStencilLocations[loc]);
     if (c > dof-1) SETERRQ3(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"Supplied component number (%D) for location %s is too big (maximum %D)",c,DMStagStencilLocations[loc],dof-1);
   }
-#endif
   *slot = stag->locationOffsets[loc] + c;
   PetscFunctionReturn(0);
 }
@@ -865,6 +887,9 @@ static PetscErrorCode DMStagRestoreProductCoordinateArrays_Private(DM dm,void *a
     DM  subDM;
     Vec coord1d_local;
 
+    /* Ignore unrequested arrays */
+    if (!arr[d]) continue;
+
     ierr = DMProductGetDM(dmCoord,d,&subDM);CHKERRQ(ierr);
     ierr = DMGetCoordinatesLocal(subDM,&coord1d_local);CHKERRQ(ierr);
     if (read) {
@@ -963,15 +988,15 @@ PetscErrorCode DMStagSetBoundaryTypes(DM dm,DMBoundaryType boundaryType0,DMBound
   PetscInt        dim;
 
   PetscFunctionBegin;
+  ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
   PetscValidHeaderSpecificType(dm,DM_CLASSID,1,DMSTAG);
   PetscValidLogicalCollectiveEnum(dm,boundaryType0,2);
-  PetscValidLogicalCollectiveEnum(dm,boundaryType1,3);
-  PetscValidLogicalCollectiveEnum(dm,boundaryType2,4);
+  if (dim > 1) PetscValidLogicalCollectiveEnum(dm,boundaryType1,3);
+  if (dim > 2) PetscValidLogicalCollectiveEnum(dm,boundaryType2,4);
   if (dm->setupcalled) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"This function must be called before DMSetUp()");
-  ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
-  if (boundaryType0           ) stag->boundaryType[0] = boundaryType0;
-  if (boundaryType1 && dim > 1) stag->boundaryType[1] = boundaryType1;
-  if (boundaryType2 && dim > 2) stag->boundaryType[2] = boundaryType2;
+               stag->boundaryType[0] = boundaryType0;
+  if (dim > 1) stag->boundaryType[1] = boundaryType1;
+  if (dim > 2) stag->boundaryType[2] = boundaryType2;
   PetscFunctionReturn(0);
 }
 
@@ -1070,12 +1095,12 @@ PetscErrorCode DMStagSetNumRanks(DM dm,PetscInt nRanks0,PetscInt nRanks1,PetscIn
   PetscValidLogicalCollectiveInt(dm,nRanks2,4);
   if (dm->setupcalled) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"This function must be called before DMSetUp()");
   ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
-  if (nRanks0 < 1) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"number of ranks in X direction cannot be less than 1");
-  if (dim > 1 && nRanks1 < 1) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"number of ranks in Y direction cannot be less than 1");
-  if (dim > 2 && nRanks2 < 1) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"number of ranks in Z direction cannot be less than 1");
+  if (nRanks0 != PETSC_DECIDE && nRanks0 < 1) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"number of ranks in X direction cannot be less than 1");
+  if (dim > 1 && nRanks1 != PETSC_DECIDE && nRanks1 < 1) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"number of ranks in Y direction cannot be less than 1");
+  if (dim > 2 && nRanks2 != PETSC_DECIDE && nRanks2 < 1) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_OUTOFRANGE,"number of ranks in Z direction cannot be less than 1");
   if (nRanks0) stag->nRanks[0] = nRanks0;
-  if (nRanks1) stag->nRanks[1] = nRanks1;
-  if (nRanks2) stag->nRanks[2] = nRanks2;
+  if (dim > 1 && nRanks1) stag->nRanks[1] = nRanks1;
+  if (dim > 2 && nRanks2) stag->nRanks[2] = nRanks2;
   PetscFunctionReturn(0);
 }
 
@@ -1186,13 +1211,14 @@ PetscErrorCode DMStagSetOwnershipRanges(DM dm,PetscInt const *lx,PetscInt const 
   PetscErrorCode  ierr;
   DM_Stag * const stag = (DM_Stag*)dm->data;
   const PetscInt  *lin[3];
-  PetscInt        d;
+  PetscInt        d,dim;
 
   PetscFunctionBegin;
   PetscValidHeaderSpecificType(dm,DM_CLASSID,1,DMSTAG);
   if (dm->setupcalled) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"This function must be called before DMSetUp()");
   lin[0] = lx; lin[1] = ly; lin[2] = lz;
-  for (d=0; d<3; ++d) {
+  ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
+  for (d=0; d<dim; ++d) {
     if (lin[d]) {
       if (stag->nRanks[d] < 0) SETERRQ(PetscObjectComm((PetscObject)dm),PETSC_ERR_ARG_WRONGSTATE,"Cannot set ownership ranges before setting number of ranks");
       if (!stag->l[d]) {
@@ -1217,9 +1243,17 @@ PetscErrorCode DMStagSetOwnershipRanges(DM dm,PetscInt const *lx,PetscInt const 
   DMStag supports 2 different types of coordinate DM: DMSTAG and DMPRODUCT.
   Arguments corresponding to higher dimensions are ignored for 1D and 2D grids.
 
+  Local coordinates are populated (using DMSetCoordinatesLocal()), linearly
+  extrapolated to ghost cells, including those outside the physical domain.
+  This is also done in case of periodic boundaries, meaning that the same
+  global point may have different coordinates in different local representations,
+  which are equivalent assuming a periodicity implied by the arguments to this function,
+  i.e. two points are equivalent if their difference is a multiple of (xmax - xmin)
+  in the x direction, (ymax - ymin) in the y direction, and (zmax - zmin) in the z direction.
+
   Level: advanced
 
-.seealso: DMSTAG, DMPRODUCT, DMStagSetUniformCoordinatesExplicit(), DMStagSetUniformCoordinatesProduct(), DMStagSetCoordinateDMType(), DMGetCoordinateDM(), DMGetCoordinates(), DMDASetUniformCoordinates()
+.seealso: DMSTAG, DMPRODUCT, DMStagSetUniformCoordinatesExplicit(), DMStagSetUniformCoordinatesProduct(), DMStagSetCoordinateDMType(), DMGetCoordinateDM(), DMGetCoordinates(), DMDASetUniformCoordinates(), DMBoundaryType
 @*/
 PetscErrorCode DMStagSetUniformCoordinates(DM dm,PetscReal xmin,PetscReal xmax,PetscReal ymin,PetscReal ymax,PetscReal zmin,PetscReal zmax)
 {
@@ -1253,7 +1287,11 @@ PetscErrorCode DMStagSetUniformCoordinates(DM dm,PetscReal xmin,PetscReal xmax,P
   Notes:
   DMStag supports 2 different types of coordinate DM: either another DMStag, or a DMProduct.
   If the grid is orthogonal, using DMProduct should be more efficient.
+
   Arguments corresponding to higher dimensions are ignored for 1D and 2D grids.
+
+  See the manual page for DMStagSetUniformCoordinates() for information on how
+  coordinates for dummy cells outside the physical domain boundary are populated.
 
   Level: beginner
 
@@ -1285,8 +1323,7 @@ PetscErrorCode DMStagSetUniformCoordinatesExplicit(DM dm,PetscReal xmin,PetscRea
 /*@C
   DMStagSetUniformCoordinatesProduct - create uniform coordinates, as a product of 1D arrays
 
-  Set the coordinate DM to be a DMProduct of 1D DMStag objects, each of which have a coordinate DM (also a 1d DMStag) holding uniform
-  coordinates.
+  Set the coordinate DM to be a DMProduct of 1D DMStag objects, each of which have a coordinate DM (also a 1d DMStag) holding uniform coordinates.
 
   Collective
 
@@ -1296,6 +1333,13 @@ PetscErrorCode DMStagSetUniformCoordinatesExplicit(DM dm,PetscReal xmin,PetscRea
 
   Notes:
   Arguments corresponding to higher dimensions are ignored for 1D and 2D grids.
+
+  The per-dimension 1-dimensional DMStag objects that comprise the product
+  always have active 0-cells (vertices, element boundaries) and 1-cells
+  (element centers).
+
+  See the manual page for DMStagSetUniformCoordinates() for information on how
+  coordinates for dummy cells outside the physical domain boundary are populated.
 
   Level: intermediate
 
@@ -1318,16 +1362,10 @@ PetscErrorCode DMStagSetUniformCoordinatesProduct(DM dm,PetscReal xmin,PetscReal
   ierr = DMGetCoordinateDM(dm,&dmc);CHKERRQ(ierr);
   ierr = DMGetDimension(dm,&dim);CHKERRQ(ierr);
 
-  /* Create 1D sub-DMs, living on subcommunicators */
-
-  dof0 = 0;
-  for (d=0; d<dim; ++d) {          /* Include point dof in the sub-DMs if any non-element strata are active in the original DMStag */
-    if (stag->dof[d]) {
-      dof0 = 1;
-      break;
-    }
-  }
-  dof1 = stag->dof[dim] ? 1 : 0; /*  Include element dof in the sub-DMs if the elements are active in the original DMStag */
+  /* Create 1D sub-DMs, living on subcommunicators.
+     Always include both vertex and element dof, regardless of the active strata of the DMStag */
+  dof0 = 1;
+  dof1 = 1;
 
   for (d=0; d<dim; ++d) {
     DM                subdm;
@@ -1342,7 +1380,7 @@ PetscErrorCode DMStagSetUniformCoordinatesProduct(DM dm,PetscReal xmin,PetscReal
       case 2: color =            stag->rank[0]       +            stag->nRanks[0]*stag->rank[1]     ; break;
       default: SETERRQ1(PetscObjectComm((PetscObject)dm), PETSC_ERR_SUP,"Unsupported dimension index %D",d);
     }
-    ierr = MPI_Comm_split(PetscObjectComm((PetscObject)dm),color,key,&subcomm);CHKERRQ(ierr);
+    ierr = MPI_Comm_split(PetscObjectComm((PetscObject)dm),color,key,&subcomm);CHKERRMPI(ierr);
 
     /* Create sub-DMs living on these new communicators (which are destroyed by DMProduct) */
     ierr = DMStagCreate1d(subcomm,stag->boundaryType[d],stag->N[d],dof0,dof1,stag->stencilType,stag->stencilWidth,stag->l[d],&subdm);CHKERRQ(ierr);
@@ -1362,7 +1400,7 @@ PetscErrorCode DMStagSetUniformCoordinatesProduct(DM dm,PetscReal xmin,PetscReal
     ierr = DMProductSetDM(dmc,d,subdm);CHKERRQ(ierr);
     ierr = DMProductSetDimensionIndex(dmc,d,0);CHKERRQ(ierr);
     ierr = DMDestroy(&subdm);CHKERRQ(ierr);
-    ierr = MPI_Comm_free(&subcomm);CHKERRQ(ierr);
+    ierr = MPI_Comm_free(&subcomm);CHKERRMPI(ierr);
   }
   PetscFunctionReturn(0);
 }

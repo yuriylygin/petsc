@@ -93,7 +93,7 @@
     SETERRQ1(PETSC_COMM_SELF,PETSC_ERR_LIB,        \
              "[khash] Assertion: `%s' failed.",    \
              PetscStringize(expr));                \
-} while(0)
+} while (0)
 #else
 #define PetscHashAssert(expr) ((void)(expr))
 #endif
@@ -191,6 +191,15 @@ PETSC_STATIC_INLINE PetscHash_t PetscHash_UInt64(PetscHash64_t key)
 PETSC_STATIC_INLINE PetscHash_t PetscHashInt(PetscInt key)
 {
 #if defined(PETSC_USE_64BIT_INDICES)
+  return PetscHash_UInt64((PetscHash64_t)key);
+#else
+  return PetscHash_UInt32((PetscHash32_t)key);
+#endif
+}
+
+PETSC_STATIC_INLINE PetscHash_t PetscHashPointer(void *key)
+{
+#if PETSC_SIZEOF_VOID_P == 8
   return PetscHash_UInt64((PetscHash64_t)key);
 #else
   return PetscHash_UInt32((PetscHash32_t)key);

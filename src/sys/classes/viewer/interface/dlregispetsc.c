@@ -19,7 +19,7 @@ PetscErrorCode  PetscSysFinalizePackage(void)
 
   PetscFunctionBegin;
   if (Petsc_Seq_keyval != MPI_KEYVAL_INVALID) {
-    ierr = MPI_Comm_free_keyval(&Petsc_Seq_keyval);CHKERRQ(ierr);
+    ierr = MPI_Comm_free_keyval(&Petsc_Seq_keyval);CHKERRMPI(ierr);
   }
   PetscSysPackageInitialized = PETSC_FALSE;
   PetscFunctionReturn(0);
@@ -51,11 +51,12 @@ PetscErrorCode  PetscSysInitializePackage(void)
   ierr = PetscLogEventRegister("PetscBarrier", PETSC_SMALLEST_CLASSID,&PETSC_Barrier);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("BuildTwoSided",PETSC_SMALLEST_CLASSID,&PETSC_BuildTwoSided);CHKERRQ(ierr);
   ierr = PetscLogEventRegister("BuildTwoSidedF",PETSC_SMALLEST_CLASSID,&PETSC_BuildTwoSidedF);CHKERRQ(ierr);
-  /* Process info exclusions */
-  ierr = PetscOptionsGetString(NULL,NULL,"-info_exclude",logList,sizeof(logList),&opt);CHKERRQ(ierr);
-  if (opt) {
-    ierr = PetscStrInList("null",logList,',',&pkg);CHKERRQ(ierr);
-    if (pkg) {ierr = PetscInfoDeactivateClass(0);CHKERRQ(ierr);}
+  /* Process Info */
+  {
+    PetscClassId  classids[1];
+
+    classids[0] = PETSC_SMALLEST_CLASSID;
+    ierr = PetscInfoProcessClass("sys", 1, classids);CHKERRQ(ierr);
   }
   /* Process summary exclusions */
   ierr = PetscOptionsGetString(NULL,NULL,"-log_exclude",logList,sizeof(logList),&opt);CHKERRQ(ierr);
@@ -78,13 +79,10 @@ PETSC_EXTERN PetscErrorCode PetscDLLibraryRegister_petscsnes(void);
 PETSC_EXTERN PetscErrorCode PetscDLLibraryRegister_petscts(void);
 #endif
 
-#if defined(PETSC_USE_SINGLE_LIBRARY)
-#else
-#endif
 /*
   PetscDLLibraryRegister - This function is called when the dynamic library it is in is opened.
 
-  This one registers all the draw and PetscViewer objects.
+  This one registers all the system level objects.
 
  */
 #if defined(PETSC_USE_SINGLE_LIBRARY)

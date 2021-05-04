@@ -50,6 +50,11 @@
 #define PetscFloorReal(a)   floorf(a)
 #define PetscFmodReal(a,b)  fmodf(a,b)
 #define PetscTGamma(a)      tgammaf(a)
+#if defined(PETSC_HAVE_LGAMMA_IS_GAMMA)
+#define PetscLGamma(a)      gammaf(a)
+#else
+#define PetscLGamma(a)      lgammaf(a)
+#endif
 
 #elif defined(PETSC_USE_REAL_DOUBLE)
 #define PetscSqrtReal(a)    sqrt(a)
@@ -77,6 +82,11 @@
 #define PetscFloorReal(a)   floor(a)
 #define PetscFmodReal(a,b)  fmod(a,b)
 #define PetscTGamma(a)      tgamma(a)
+#if defined(PETSC_HAVE_LGAMMA_IS_GAMMA)
+#define PetscLGamma(a)      gamma(a)
+#else
+#define PetscLGamma(a)      lgamma(a)
+#endif
 
 #elif defined(PETSC_USE_REAL___FLOAT128)
 #define PetscSqrtReal(a)    sqrtq(a)
@@ -104,6 +114,11 @@
 #define PetscFloorReal(a)   floorq(a)
 #define PetscFmodReal(a,b)  fmodq(a,b)
 #define PetscTGamma(a)      tgammaq(a)
+#if defined(PETSC_HAVE_LGAMMA_IS_GAMMA)
+#define PetscLGamma(a)      gammaq(a)
+#else
+#define PetscLGamma(a)      lgammaq(a)
+#endif
 
 #elif defined(PETSC_USE_REAL___FP16)
 #define PetscSqrtReal(a)    sqrtf(a)
@@ -131,6 +146,11 @@
 #define PetscFloorReal(a)   floorf(a)
 #define PetscFmodReal(a,b)  fmodf(a,b)
 #define PetscTGamma(a)      tgammaf(a)
+#if defined(PETSC_HAVE_LGAMMA_IS_GAMMA)
+#define PetscLGamma(a)      gammaf(a)
+#else
+#define PetscLGamma(a)      lgammaf(a)
+#endif
 
 #endif /* PETSC_USE_REAL_* */
 
@@ -178,7 +198,7 @@ M*/
     Complex number definitions
  */
 #if defined(PETSC_HAVE_COMPLEX)
-#if defined(__cplusplus) && defined(PETSC_HAVE_CXX_COMPLEX) && !defined(PETSC_USE_REAL___FLOAT128)
+#if defined(__cplusplus)
 /* C++ support of complex number */
 
 #define PetscRealPartComplex(a)      (a).real()
@@ -274,10 +294,9 @@ PETSC_STATIC_INLINE PetscComplex PetscAtanhComplex(PetscComplex z)
 
 */
 
-#elif defined(PETSC_HAVE_C99_COMPLEX) && !defined(PETSC_USE_REAL___FP16)
-/* C99 support of complex number */
+#else /* C99 support of complex number */
 
-#if defined(PETSC_USE_REAL_SINGLE) || defined(PETSC_USE_REAL___FP16)
+#if defined(PETSC_USE_REAL_SINGLE)
 #define PetscRealPartComplex(a)      crealf(a)
 #define PetscImaginaryPartComplex(a) cimagf(a)
 #define PetscAbsComplex(a)           cabsf(a)
@@ -347,7 +366,7 @@ PETSC_STATIC_INLINE PetscComplex PetscAtanhComplex(PetscComplex z)
 #define PetscAtanhComplex(a)         catanhq(a)
 
 #endif /* PETSC_USE_REAL_* */
-#endif /* (__cplusplus && PETSC_HAVE_CXX_COMPLEX) else-if (!__cplusplus && PETSC_HAVE_C99_COMPLEX) */
+#endif /* (__cplusplus) */
 
 /*
    PETSC_i is the imaginary number, i
@@ -361,7 +380,7 @@ PETSC_EXTERN PetscComplex PETSC_i;
 */
 PETSC_STATIC_INLINE PetscComplex PetscCMPLX(PetscReal x, PetscReal y)
 {
-#if   defined(__cplusplus) && defined(PETSC_HAVE_CXX_COMPLEX) && !defined(PETSC_USE_REAL___FLOAT128)
+#if defined(__cplusplus)
   return PetscComplex(x,y);
 #elif defined(_Imaginary_I)
   return x + y * _Imaginary_I;
@@ -382,23 +401,9 @@ PETSC_STATIC_INLINE PetscComplex PetscCMPLX(PetscReal x, PetscReal y)
 #endif
 }
 
-#if defined(PETSC_HAVE_MPI_C_DOUBLE_COMPLEX)
-#define MPIU_C_COMPLEX MPI_C_COMPLEX
-#define MPIU_C_DOUBLE_COMPLEX MPI_C_DOUBLE_COMPLEX
-#else
-# if defined(__cplusplus) && defined(PETSC_HAVE_CXX_COMPLEX) && !defined(PETSC_USE_REAL___FLOAT128)
-  typedef petsccomplexlib::complex<double> petsc_mpiu_c_double_complex;
-  typedef petsccomplexlib::complex<float> petsc_mpiu_c_complex;
-# elif !defined(__cplusplus) && defined(PETSC_HAVE_C99_COMPLEX)
-  typedef double _Complex petsc_mpiu_c_double_complex;
-  typedef float _Complex petsc_mpiu_c_complex;
-# else
-  typedef struct {double real,imag;} petsc_mpiu_c_double_complex;
-  typedef struct {float real,imag;} petsc_mpiu_c_complex;
-# endif
-PETSC_EXTERN MPI_Datatype MPIU_C_COMPLEX PetscAttrMPITypeTagLayoutCompatible(petsc_mpiu_c_complex);
-PETSC_EXTERN MPI_Datatype MPIU_C_DOUBLE_COMPLEX PetscAttrMPITypeTagLayoutCompatible(petsc_mpiu_c_double_complex);
-#endif /* PETSC_HAVE_MPI_C_DOUBLE_COMPLEX */
+#define MPIU_C_COMPLEX MPI_C_COMPLEX PETSC_DEPRECATED_MACRO("GCC warning \"MPIU_C_COMPLEX macro is deprecated use MPI_C_COMPLEX (since version 3.15)\"")
+#define MPIU_C_DOUBLE_COMPLEX MPI_C_DOUBLE_COMPLEX PETSC_DEPRECATED_MACRO("GCC warning \"MPIU_C_DOUBLE_COMPLEX macro is deprecated use MPI_C_DOUBLE_COMPLEX (since version 3.15)\"")
+
 #if defined(PETSC_USE_REAL___FLOAT128)
 PETSC_EXTERN MPI_Datatype MPIU___COMPLEX128 PetscAttrMPITypeTag(__complex128);
 #endif /* PETSC_USE_REAL___FLOAT128 */
@@ -414,13 +419,13 @@ PETSC_EXTERN MPI_Datatype MPIU___COMPLEX128 PetscAttrMPITypeTag(__complex128);
 .seealso: PetscReal, PetscScalar, PetscComplex, PetscInt, MPIU_REAL, MPIU_SCALAR, MPIU_COMPLEX, MPIU_INT, PETSC_i
 M*/
 #if defined(PETSC_USE_REAL_SINGLE)
-#  define MPIU_COMPLEX MPIU_C_COMPLEX
+#  define MPIU_COMPLEX MPI_C_COMPLEX
 #elif defined(PETSC_USE_REAL_DOUBLE)
-#  define MPIU_COMPLEX MPIU_C_DOUBLE_COMPLEX
+#  define MPIU_COMPLEX MPI_C_DOUBLE_COMPLEX
 #elif defined(PETSC_USE_REAL___FLOAT128)
 #  define MPIU_COMPLEX MPIU___COMPLEX128
 #elif defined(PETSC_USE_REAL___FP16)
-#  define MPIU_COMPLEX MPIU_C_COMPLEX
+#  define MPIU_COMPLEX MPI_C_COMPLEX
 #endif /* PETSC_USE_REAL_* */
 
 #endif /* PETSC_HAVE_COMPLEX */
@@ -428,7 +433,7 @@ M*/
 /*
     Scalar number definitions
  */
-#if defined(PETSC_USE_COMPLEX) && !defined(PETSC_SKIP_COMPLEX)
+#if defined(PETSC_USE_COMPLEX) && defined(PETSC_HAVE_COMPLEX)
 /*MC
    MPIU_SCALAR - MPI datatype corresponding to PetscScalar
 
@@ -634,7 +639,7 @@ M*/
    Not Collective
 
    Input Parameter:
-+  x - value to use if within interval (a,b)
++  x - value to use if within interval [a,b]
 .  a - lower end of interval
 -  b - upper end of interval
 
@@ -743,6 +748,7 @@ M*/
 #define PETSC_MAX_INT            9223372036854775807L
 #define PETSC_MIN_INT            (-PETSC_MAX_INT - 1)
 #endif
+#define PETSC_MAX_UINT16         65535
 
 #if defined(PETSC_USE_REAL_SINGLE)
 #  define PETSC_MAX_REAL                3.40282346638528860e+38F
@@ -815,6 +821,17 @@ PETSC_STATIC_INLINE PetscInt PetscPowInt(PetscInt base,PetscInt power)
   return result;
 }
 
+PETSC_STATIC_INLINE PetscInt64 PetscPowInt64(PetscInt base,PetscInt power)
+{
+  PetscInt64 result = 1;
+  while (power) {
+    if (power & 1) result *= base;
+    power >>= 1;
+    base *= base;
+  }
+  return result;
+}
+
 PETSC_STATIC_INLINE PetscReal PetscPowRealInt(PetscReal base,PetscInt power)
 {
   PetscReal result = 1;
@@ -850,6 +867,63 @@ PETSC_STATIC_INLINE PetscScalar PetscPowScalarReal(PetscScalar base,PetscReal po
   PetscScalar cpower = power;
   return PetscPowScalar(base,cpower);
 }
+
+/*MC
+    PetscLTE - Performs a less than or equal to on a given constant with a fudge for floating point numbers
+
+   Synopsis:
+   #include <petscmath.h>
+   bool PetscLTE(PetscReal x,constant float)
+
+   Not Collective
+
+   Input Parameters:
++   x - the variable
+-   b - the constant float it is checking if x is less than or equal to
+
+   Notes:
+     The fudge factor is the value PETSC_SMALL
+
+     The constant numerical value is automatically set to the appropriate precision of PETSc so can just be provided as, for example, 3.2
+
+     This is used in several examples for setting initial conditions based on coordinate values that are computed with i*h that produces inexact
+     floating point results.
+
+   Level: advanced
+
+.seealso: PetscMax(), PetscMin(), PetscAbsInt(), PetscAbsReal(), PetscGTE()
+
+M*/
+#define PetscLTE(x,b)  ((x) <= (PetscRealConstant(b)+PETSC_SMALL))
+
+/*MC
+    PetscGTE - Performs a greater than or equal to on a given constant with a fudge for floating point numbers
+
+   Synopsis:
+   #include <petscmath.h>
+   bool PetscGTE(PetscReal x,constant float)
+
+   Not Collective
+
+   Input Parameters:
++   x - the variable
+-   b - the constant float it is checking if x is greater than or equal to
+
+   Notes:
+     The fudge factor is the value PETSC_SMALL
+
+     The constant numerical value is automatically set to the appropriate precision of PETSc so can just be provided as, for example, 3.2
+
+     This is used in several examples for setting initial conditions based on coordinate values that are computed with i*h that produces inexact
+     floating point results.
+
+   Level: advanced
+
+.seealso: PetscMax(), PetscMin(), PetscAbsInt(), PetscAbsReal(), PetscLTE()
+
+M*/
+#define PetscGTE(x,b)  ((x) >= (PetscRealConstant(b)-PETSC_SMALL))
+
 
 PETSC_EXTERN PetscErrorCode PetscLinearRegression(PetscInt,const PetscReal[],const PetscReal[],PetscReal*,PetscReal*);
 #endif

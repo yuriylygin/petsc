@@ -11,6 +11,7 @@ if __name__ == '__main__':
   configure_options = [
     '--package-prefix-hash='+petsc_hash_pkgs,
     '--download-f2cblaslapack',
+    '--download-blis',
     '--download-mpich',
     '--with-cc=clang',
     '--with-cxx=clang++',
@@ -21,5 +22,6 @@ if __name__ == '__main__':
     'CXXOPTFLAGS=-g -O',
     '--download-codipack=1',
     '--download-adblaslapack=1',
+    '--with-mpi-f90module-visibility=0',
   ]
   configure.petsc_configure(configure_options)

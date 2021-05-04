@@ -95,8 +95,8 @@ int main(int argc,char **args)
   ierr = PetscInitializeFortran();CHKERRQ(ierr);
   comm = PETSC_COMM_WORLD;
   f77FORLINK();                               /* Link FORTRAN and C COMMONS */
-  ierr = MPI_Comm_rank(MPI_COMM_WORLD,&rank);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(MPI_COMM_WORLD,&CommSize);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(MPI_COMM_WORLD,&rank);CHKERRMPI(ierr);
+  ierr = MPI_Comm_size(MPI_COMM_WORLD,&CommSize);CHKERRMPI(ierr);
 
   /*PetscPrintf(MPI_COMM_WORLD, " Program name is %s\n",
                 OptionsGetProgramName());*/
@@ -576,7 +576,7 @@ int Update(SNES snes, void *ctx)
     /*cpu_fin = PetscGetCPUTime();*/
     cpuloc = time2-time1;
     cpuglo = 0.0;
-    ierr   = MPI_Allreduce(&cpuloc,&cpuglo,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr   = MPI_Allreduce(&cpuloc,&cpuglo,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);CHKERRMPI(ierr);
 
     /*cpu_fin = PetscGetCPUTime();
     cpuloc = cpu_fin - cpu_ini;
@@ -753,7 +753,7 @@ int GetLocalOrdering(GRID *grid)
   ICALLOC(grid_param,&tmp);
   if (!rank) {
     PetscBool exists;
-    ierr = PetscOptionsGetString(NULL,NULL,"-mesh",mesh_file,256,&flg);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-mesh",mesh_file,sizeof(mesh_file),&flg);CHKERRQ(ierr);
     ierr = PetscTestFile(mesh_file,'r',&exists);CHKERRQ(ierr);
     if (!exists) { /* try uns3d.msh as the file name */
       ierr = PetscStrcpy(mesh_file,"uns3d.msh");CHKERRQ(ierr);
@@ -810,7 +810,7 @@ int GetLocalOrdering(GRID *grid)
       char      spart_file[PETSC_MAX_PATH_LEN],part_file[PETSC_MAX_PATH_LEN];
       PetscBool exists;
 
-      ierr = PetscOptionsGetString(NULL,NULL,"-partition",spart_file,PETSC_MAX_PATH_LEN,&flg);CHKERRQ(ierr);
+      ierr = PetscOptionsGetString(NULL,NULL,"-partition",spart_file,sizeof(spart_file),&flg);CHKERRQ(ierr);
       ierr = PetscTestFile(spart_file,'r',&exists);CHKERRQ(ierr);
       if (!exists) { /* try appending the number of processors */
         sprintf(part_file,"part_vec.part.%d",CommSize);
@@ -825,7 +825,7 @@ int GetLocalOrdering(GRID *grid)
       fclose(fptr);
     }
   }
-  ierr = MPI_Bcast(v2p,nnodes,MPI_INT,0,comm);CHKERRQ(ierr);
+  ierr = MPI_Bcast(v2p,nnodes,MPI_INT,0,comm);CHKERRMPI(ierr);
   for (inode = 0; inode < nnodes; inode++) {
     if (v2p[inode] == rank) {
       l2a[nnodesLoc] = inode ;
@@ -838,7 +838,7 @@ int GetLocalOrdering(GRID *grid)
   time_fin -= time_ini;
   ierr      = PetscPrintf(comm,"Partition Vector read successfully\n");CHKERRQ(ierr);
   ierr      = PetscPrintf(comm,"Time taken in this phase was %g\n",time_fin);CHKERRQ(ierr);
-  ierr      = MPI_Scan(&nnodesLoc,&rstart,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);CHKERRQ(ierr);
+  ierr      = MPI_Scan(&nnodesLoc,&rstart,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);CHKERRMPI(ierr);
   rstart   -= nnodesLoc;
   ICALLOC(nnodesLoc, &pordering);
   for (i=0; i < nnodesLoc; i++) pordering[i] = rstart + i;
@@ -988,7 +988,7 @@ int GetLocalOrdering(GRID *grid)
   l2a  = grid->loc2glo;
   ICALLOC(nvertices, &grid->loc2pet);
   l2p  = grid->loc2pet;
-  ierr = PetscMemcpy(l2p,l2a,nvertices*sizeof(int));CHKERRQ(ierr);CHKERRQ(ierr);
+  ierr = PetscMemcpy(l2p,l2a,nvertices*sizeof(int));CHKERRQ(ierr);
   ierr = AOApplicationToPetsc(grid->ao,nvertices,l2p);CHKERRQ(ierr);
 
 /* Map the 'ja' array in petsc ordering */
@@ -1017,7 +1017,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= readEdges;
     remEdges = remEdges - readEdges;
-    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
   ierr = PetscFree(ftmp);CHKERRQ(ierr);
   FCALLOC(nedgeLoc, &ftmp);
@@ -1041,7 +1041,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= readEdges;
     remEdges = remEdges - readEdges;
-    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
   ierr = PetscFree(ftmp);CHKERRQ(ierr);
   FCALLOC(nedgeLoc, &ftmp);
@@ -1065,7 +1065,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= readEdges;
     remEdges = remEdges - readEdges;
-    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
   ierr = PetscFree(ftmp);CHKERRQ(ierr);
   FCALLOC(nedgeLoc, &ftmp);
@@ -1089,7 +1089,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= readEdges;
     remEdges = remEdges - readEdges;
-    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr     = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
   ierr = PetscFree(ftmp);CHKERRQ(ierr);
   FCALLOC(nedgeLoc, &ftmp);
@@ -1121,7 +1121,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= nnodesLocEst;
     remNodes -= nnodesLocEst;
-    ierr = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
 
   FCALLOC(nvertices, &grid->y);
@@ -1137,7 +1137,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= nnodesLocEst;
     remNodes -= nnodesLocEst;
-    ierr      = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr      = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
 
   FCALLOC(nvertices, &grid->z);
@@ -1153,7 +1153,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= nnodesLocEst;
     remNodes -= nnodesLocEst;
-    ierr      = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr      = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
 
 
@@ -1171,7 +1171,7 @@ int GetLocalOrdering(GRID *grid)
     }
     i+= nnodesLocEst;
     remNodes -= nnodesLocEst;
-    ierr = MPI_Barrier(MPI_COMM_WORLD);CHKERRQ(ierr);
+    ierr = MPI_Barrier(MPI_COMM_WORLD);CHKERRMPI(ierr);
   }
 
   ierr = PetscFree(ftmp);CHKERRQ(ierr);
@@ -1534,8 +1534,8 @@ int GetLocalOrdering(GRID *grid)
    ICALLOC(nvertices, &grid->loc2glo);
    ierr = PetscMemcpy(grid->loc2pet,l2p,nvertices*sizeof(int));CHKERRQ(ierr);
    ierr = PetscMemcpy(grid->loc2glo,l2a,nvertices*sizeof(int));CHKERRQ(ierr);
-   ierr = PetscFree(l2a);CHKERRQ(ierr);CHKERRQ(ierr);
-   ierr = PetscFree(l2p);CHKERRQ(ierr);CHKERRQ(ierr);*/
+   ierr = PetscFree(l2a);CHKERRQ(ierr);
+   ierr = PetscFree(l2p);CHKERRQ(ierr);*/
 
   grid->nnodesLoc  = nnodesLoc;
   grid->nedgeLoc   = nedgeLoc;
@@ -2303,7 +2303,7 @@ int WriteRestartFile(GRID *grid, int timeStep)
     ierr = PetscBinaryOpen(fileName,FILE_MODE_WRITE,&fdes);CHKERRQ(ierr);
     ierr = MPI_Barrier(MPI_COMM_WORLD);
     ierr = PetscBinarySeek(fdes,bs*rstart*PETSC_BINARY_SCALAR_SIZE,PETSC_BINARY_SEEK_SET,&startPos);CHKERRQ(ierr);
-    ierr = PetscBinaryWrite(fdes,qnode,bs*nnodesLoc,PETSC_SCALAR,PETSC_FALSE);CHKERRQ(ierr);
+    ierr = PetscBinaryWrite(fdes,qnode,bs*nnodesLoc,PETSC_SCALAR);CHKERRQ(ierr);
     /*write(fdes,qnode,bs*nnodesLoc*sizeof(REAL));*/
     ierr = MPI_Barrier(MPI_COMM_WORLD);
     PetscPrintf(MPI_COMM_WORLD,"Restart file written to %s\n", fileName);
@@ -2320,7 +2320,7 @@ int WriteRestartFile(GRID *grid, int timeStep)
       else                      sprintf(fileName,"flow%d.bin",timeStep);
       printf("Restart file name is %s\n", fileName);
       ierr = PetscBinaryOpen(fileName,FILE_MODE_WRITE,&fdes);CHKERRQ(ierr);
-      ierr = PetscBinaryWrite(fdes,qnode,bs*nnodesLoc,PETSC_SCALAR,PETSC_FALSE);CHKERRQ(ierr);
+      ierr = PetscBinaryWrite(fdes,qnode,bs*nnodesLoc,PETSC_SCALAR);CHKERRQ(ierr);
       /* Write the solution vector in vtk (Visualization Toolkit) format*/
       ierr = PetscOptionsHasName(NULL,"-vtk",&flg_vtk);CHKERRQ(ierr);
       if (flg_vtk) {
@@ -2355,18 +2355,18 @@ int WriteRestartFile(GRID *grid, int timeStep)
     for (i = 1; i < CommSize; i++) {
       if (rank == i) {
         ierr = VecGetArray(qnodeLoc, &qnode);
-        ierr = MPI_Send(&nnodesLoc,1,MPI_INT,0,0,MPI_COMM_WORLD);CHKERRQ(ierr);
-        ierr = MPI_Send(qnode,bs*nnodesLoc,MPI_DOUBLE,0,1,MPI_COMM_WORLD);CHKERRQ(ierr);
+        ierr = MPI_Send(&nnodesLoc,1,MPI_INT,0,0,MPI_COMM_WORLD);CHKERRMPI(ierr);
+        ierr = MPI_Send(qnode,bs*nnodesLoc,MPI_DOUBLE,0,1,MPI_COMM_WORLD);CHKERRMPI(ierr);
         ierr = VecRestoreArray(qnodeLoc, &qnode);CHKERRQ(ierr);
       }
       if (!rank) {
         int        nnodesLocIpr;
         MPI_Status mstatus;
 
-        ierr = MPI_Recv(&nnodesLocIpr,1,MPI_INT,i,0,MPI_COMM_WORLD,&mstatus);CHKERRQ(ierr);
+        ierr = MPI_Recv(&nnodesLocIpr,1,MPI_INT,i,0,MPI_COMM_WORLD,&mstatus);CHKERRMPI(ierr);
         FCALLOC(bs*nnodesLocIpr, &qnode);
-        ierr = MPI_Recv(qnode,bs*nnodesLocIpr,MPI_DOUBLE,i,1,MPI_COMM_WORLD,&mstatus);CHKERRQ(ierr);
-        ierr = PetscBinaryWrite(fdes,qnode,bs*nnodesLocIpr,PETSC_SCALAR,PETSC_FALSE);CHKERRQ(ierr);
+        ierr = MPI_Recv(qnode,bs*nnodesLocIpr,MPI_DOUBLE,i,1,MPI_COMM_WORLD,&mstatus);CHKERRMPI(ierr);
+        ierr = PetscBinaryWrite(fdes,qnode,bs*nnodesLocIpr,PETSC_SCALAR);CHKERRQ(ierr);
         /* Write the solution vector in vtk (Visualization Toolkit) format*/
         if (flg_vtk != 0) {
         /* Write the Mach Number */
@@ -2431,16 +2431,16 @@ int ReadRestartFile(GRID *grid)
   for (i = 1; i < CommSize; i++) {
     if (rank == i) {
       ierr = VecGetArray(qnodeLoc, &qnode);
-      ierr = MPI_Send(&nnodesLoc,1,MPI_INT,0,0,MPI_COMM_WORLD);CHKERRQ(ierr);
-      ierr = MPI_Recv(qnode,bs*nnodesLoc,MPI_DOUBLE,0,1,MPI_COMM_WORLD,&status);CHKERRQ(ierr);
+      ierr = MPI_Send(&nnodesLoc,1,MPI_INT,0,0,MPI_COMM_WORLD);CHKERRMPI(ierr);
+      ierr = MPI_Recv(qnode,bs*nnodesLoc,MPI_DOUBLE,0,1,MPI_COMM_WORLD,&status);CHKERRMPI(ierr);
       ierr = VecRestoreArray(qnodeLoc, &qnode);CHKERRQ(ierr);
     }
     if (!rank) {
       int nnodesLocIpr;
-      ierr = MPI_Recv(&nnodesLocIpr,1,MPI_INT,i,0,MPI_COMM_WORLD,&status);CHKERRQ(ierr);
+      ierr = MPI_Recv(&nnodesLocIpr,1,MPI_INT,i,0,MPI_COMM_WORLD,&status);CHKERRMPI(ierr);
       FCALLOC(bs*nnodesLocIpr, &qnode);
       ierr = PetscBinaryRead(fdes,qnode,bs*nnodesLocIpr,PETSC_SCALAR);CHKERRQ(ierr);
-      ierr = MPI_Send(qnode,bs*nnodesLocIpr,MPI_DOUBLE,i,1,MPI_COMM_WORLD);CHKERRQ(ierr);
+      ierr = MPI_Send(qnode,bs*nnodesLocIpr,MPI_DOUBLE,i,1,MPI_COMM_WORLD);CHKERRMPI(ierr);
       ierr = PetscFree(qnode);CHKERRQ(ierr);
     }
     ierr = MPI_Barrier(MPI_COMM_WORLD);

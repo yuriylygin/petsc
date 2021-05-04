@@ -10,18 +10,21 @@
 #include "petsc/finclude/petscmat.h"
 
 #define DMType character*(80)
-#define DMBoundaryType      PetscEnum
-#define DMPointLocationType PetscEnum
-#define DMAdaptationType    PetscEnum
-#define DMAdaptFlag         PetscEnum
-#define PetscUnit           PetscEnum
+#define DMBoundaryType       PetscEnum
+#define DMPointLocationType  PetscEnum
+#define DMAdaptationType     PetscEnum
+#define DMAdaptFlag          PetscEnum
+#define PetscUnit            PetscEnum
 #define DMAdaptationStrategy PetscEnum
-#define DMDirection PetscEnum
+#define DMDirection          PetscEnum
+#define DMEnclosureType      PetscEnum
+#define DMPolytopeType       PetscEnum
 
 #define DM               type(tDM)
 
 #define DMAdaptor        PetscFortranAddr
 #define PetscQuadrature  PetscFortranAddr
+#define PetscWeakForm    PetscFortranAddr
 #define PetscDS          PetscFortranAddr
 #define PetscFE          PetscFortranAddr
 #define PetscSpace       PetscFortranAddr
@@ -45,5 +48,7 @@
 #define DMP4EST     'p4est'
 #define DMP8EST     'p8est'
 #define DMSWARM     'swarm'
+
+#define DMPlexCellRefiner type(tDMPlexCellRefiner)
 
 #endif

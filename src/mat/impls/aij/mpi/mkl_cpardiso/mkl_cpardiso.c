@@ -52,7 +52,7 @@ static const char *Err_MSG_CPardiso(int errNo) {
       return "problems with opening OOC temporary files"; break;
     case -11:
       return "read/write problems with the OOC data file"; break;
-    default : 
+    default :
       return "unknown error";
   }
 }
@@ -73,7 +73,7 @@ typedef struct {
    */
   void         *pt[IPARM_SIZE];
 
-  MPI_Comm     comm_mkl_cpardiso;
+  MPI_Fint     comm_mkl_cpardiso;
 
   /* Basic mkl_cpardiso info*/
   INT_TYPE     phase, maxfct, mnum, mtype, n, nrhs, msglvl, err;
@@ -316,6 +316,7 @@ PetscErrorCode MatConvertToTriples_mpisbaij_mpisbaij_MKL_CPARDISO(Mat A, MatReus
 PetscErrorCode MatDestroy_MKL_CPARDISO(Mat A)
 {
   Mat_MKL_CPARDISO *mat_mkl_cpardiso=(Mat_MKL_CPARDISO*)A->data;
+  MPI_Comm         comm;
   PetscErrorCode   ierr;
 
   PetscFunctionBegin;
@@ -346,7 +347,8 @@ PetscErrorCode MatDestroy_MKL_CPARDISO(Mat A)
   if (mat_mkl_cpardiso->ConvertToTriples != MatCopy_seqaij_seqaij_MKL_CPARDISO) {
     ierr = PetscFree3(mat_mkl_cpardiso->ia,mat_mkl_cpardiso->ja,mat_mkl_cpardiso->a);CHKERRQ(ierr);
   }
-  ierr = MPI_Comm_free(&(mat_mkl_cpardiso->comm_mkl_cpardiso));CHKERRQ(ierr);
+  comm = MPI_Comm_f2c(mat_mkl_cpardiso->comm_mkl_cpardiso);
+  ierr = MPI_Comm_free(&comm);CHKERRMPI(ierr);
   ierr = PetscFree(A->data);CHKERRQ(ierr);
 
   /* clear composed functions */
@@ -523,15 +525,7 @@ PetscErrorCode PetscSetMKL_CPARDISOFromOptions(Mat F, Mat A)
   if (flg) mat_mkl_cpardiso->msglvl = icntl;
 
   ierr = PetscOptionsInt("-mat_mkl_cpardiso_69","Defines the matrix type","None",mat_mkl_cpardiso->mtype,&icntl,&flg);CHKERRQ(ierr);
-  if (flg) {
-    mat_mkl_cpardiso->mtype = icntl;
-#if defined(PETSC_USE_REAL_SINGLE)
-    mat_mkl_cpardiso->iparm[27] = 1;
-#else
-    mat_mkl_cpardiso->iparm[27] = 0;
-#endif
-    mat_mkl_cpardiso->iparm[34] = 1;
-  }
+  if (flg) mat_mkl_cpardiso->mtype = icntl;
   ierr = PetscOptionsInt("-mat_mkl_cpardiso_1","Use default values","None",mat_mkl_cpardiso->iparm[0],&icntl,&flg);CHKERRQ(ierr);
 
   if (flg && icntl != 0) {
@@ -602,11 +596,13 @@ PetscErrorCode PetscInitialize_MKL_CPARDISO(Mat A, Mat_MKL_CPARDISO *mat_mkl_cpa
   PetscInt        bs;
   PetscBool       match;
   PetscMPIInt     size;
+  MPI_Comm        comm;
 
   PetscFunctionBegin;
 
-  ierr = MPI_Comm_dup(PetscObjectComm((PetscObject)A),&(mat_mkl_cpardiso->comm_mkl_cpardiso));CHKERRQ(ierr);
-  ierr = MPI_Comm_size(mat_mkl_cpardiso->comm_mkl_cpardiso, &size);CHKERRQ(ierr);
+  ierr = MPI_Comm_dup(PetscObjectComm((PetscObject)A),&comm);CHKERRMPI(ierr);
+  ierr = MPI_Comm_size(comm, &size);CHKERRMPI(ierr);
+  mat_mkl_cpardiso->comm_mkl_cpardiso = MPI_Comm_c2f(comm);
 
   mat_mkl_cpardiso->CleanUp = PETSC_FALSE;
   mat_mkl_cpardiso->maxfct = 1;
@@ -829,15 +825,7 @@ PetscErrorCode MatMkl_CPardisoSetCntl_MKL_CPARDISO(Mat F,PetscInt icntl,PetscInt
     else if (icntl == 66) mat_mkl_cpardiso->maxfct = ival;
     else if (icntl == 67) mat_mkl_cpardiso->mnum = ival;
     else if (icntl == 68) mat_mkl_cpardiso->msglvl = ival;
-    else if (icntl == 69) {
-      mat_mkl_cpardiso->mtype = ival;
-#if defined(PETSC_USE_REAL_SINGLE)
-      mat_mkl_cpardiso->iparm[27] = 1;
-#else
-      mat_mkl_cpardiso->iparm[27] = 0;
-#endif
-      mat_mkl_cpardiso->iparm[34] = 1;
-    }
+    else if (icntl == 69) mat_mkl_cpardiso->mtype = ival;
   }
   PetscFunctionReturn(0);
 }
@@ -858,7 +846,7 @@ PetscErrorCode MatMkl_CPardisoSetCntl_MKL_CPARDISO(Mat F,PetscInt icntl,PetscInt
    Level: Intermediate
 
    Notes:
-    This routine cannot be used if you are solving the linear system with TS, SNES, or KSP, only if you directly call MatGetFactor() so use the options 
+    This routine cannot be used if you are solving the linear system with TS, SNES, or KSP, only if you directly call MatGetFactor() so use the options
           database approach when working with TS, SNES, or KSP.
 
    References:
@@ -903,10 +891,10 @@ static PetscErrorCode MatGetFactor_mpiaij_mkl_cpardiso(Mat A,MatFactorType ftype
 
   ierr = PetscNewLog(B,&mat_mkl_cpardiso);CHKERRQ(ierr);
 
-  if (isSeqAIJ) mat_mkl_cpardiso->ConvertToTriples = MatCopy_seqaij_seqaij_MKL_CPARDISO;
-  else if (isMPIBAIJ) mat_mkl_cpardiso->ConvertToTriples = MatConvertToTriples_mpibaij_mpibaij_MKL_CPARDISO;
+  if (isSeqAIJ)        mat_mkl_cpardiso->ConvertToTriples = MatCopy_seqaij_seqaij_MKL_CPARDISO;
+  else if (isMPIBAIJ)  mat_mkl_cpardiso->ConvertToTriples = MatConvertToTriples_mpibaij_mpibaij_MKL_CPARDISO;
   else if (isMPISBAIJ) mat_mkl_cpardiso->ConvertToTriples = MatConvertToTriples_mpisbaij_mpisbaij_MKL_CPARDISO;
-  else          mat_mkl_cpardiso->ConvertToTriples = MatConvertToTriples_mpiaij_mpiaij_MKL_CPARDISO;
+  else                 mat_mkl_cpardiso->ConvertToTriples = MatConvertToTriples_mpiaij_mpiaij_MKL_CPARDISO;
 
   if (ftype == MAT_FACTOR_LU) B->ops->lufactorsymbolic = MatLUFactorSymbolic_AIJMKL_CPARDISO;
   else B->ops->choleskyfactorsymbolic = MatCholeskyFactorSymbolic_AIJMKL_CPARDISO;
@@ -935,7 +923,7 @@ static PetscErrorCode MatGetFactor_mpiaij_mkl_cpardiso(Mat A,MatFactorType ftype
 PETSC_EXTERN PetscErrorCode MatSolverTypeRegister_MKL_CPardiso(void)
 {
   PetscErrorCode ierr;
-  
+
   PetscFunctionBegin;
   ierr = MatSolverTypeRegister(MATSOLVERMKL_CPARDISO,MATMPIAIJ,MAT_FACTOR_LU,MatGetFactor_mpiaij_mkl_cpardiso);CHKERRQ(ierr);
   ierr = MatSolverTypeRegister(MATSOLVERMKL_CPARDISO,MATSEQAIJ,MAT_FACTOR_LU,MatGetFactor_mpiaij_mkl_cpardiso);CHKERRQ(ierr);

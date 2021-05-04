@@ -168,7 +168,7 @@ PetscErrorCode PCTFS_ivec_non_uniform(PetscInt *arg1, PetscInt *arg2,  PetscInt 
 
   PetscFunctionBegin;
   /* LATER: if we're really motivated we can sort and then unsort */
-  for (i=0; i<n; ) {
+  for (i=0; i<n;) {
     /* clump 'em for now */
     j    =i+1;
     type = arg3[i];
@@ -221,13 +221,13 @@ PetscErrorCode PCTFS_ivec_sort(PetscInt *ar,  PetscInt size)
   PetscInt **top_a = (PetscInt**) offset_stack;
   PetscInt *top_s  = size_stack, *bottom_s = size_stack;
 
-
+  PetscFunctionBegin;
   /* we're really interested in the offset of the last element */
   /* ==> length of the list is now size + 1                    */
   size--;
 
   /* do until we're done ... return when stack is exhausted */
-  for (;; ) {
+  for (;;) {
     /* if list is large enough use quicksort partition exchange code */
     if (size > SORT_OPT) {
       /* start up pointer at element 1 and down at size     */
@@ -245,7 +245,7 @@ PetscErrorCode PCTFS_ivec_sort(PetscInt *ar,  PetscInt size)
 
       /* partition about pivot_value ...                              */
       /* note lists of length 2 are not guaranteed to be sorted */
-      for (;; ) {
+      for (;;) {
         /* walk up ... and down ... swap if equal to pivot! */
         do pi++; while (*pi<*ar);
         do pj--; while (*pj>*ar);
@@ -293,7 +293,6 @@ PetscErrorCode PCTFS_ivec_sort(PetscInt *ar,  PetscInt size)
       size = *(--top_s);
     }
   }
-  PetscFunctionReturn(0);
 }
 
 /******************************************************************************/
@@ -311,7 +310,7 @@ PetscErrorCode PCTFS_ivec_sort_companion(PetscInt *ar,  PetscInt *ar2,  PetscInt
   size--;
 
   /* do until we're done ... return when stack is exhausted */
-  for (;; ) {
+  for (;;) {
 
     /* if list is large enough use quicksort partition exchange code */
     if (size > SORT_OPT) {
@@ -337,7 +336,7 @@ PetscErrorCode PCTFS_ivec_sort_companion(PetscInt *ar,  PetscInt *ar2,  PetscInt
 
       /* partition about pivot_value ...                              */
       /* note lists of length 2 are not guaranteed to be sorted */
-      for (;; ) {
+      for (;;) {
         /* walk up ... and down ... swap if equal to pivot! */
         do { pi++; pi2++; } while (*pi<*ar);
         do { pj--; pj2--; } while (*pj>*ar);
@@ -393,7 +392,6 @@ PetscErrorCode PCTFS_ivec_sort_companion(PetscInt *ar,  PetscInt *ar2,  PetscInt
       size = *(--top_s);
     }
   }
-  PetscFunctionReturn(0);
 }
 
 /******************************************************************************/
@@ -411,7 +409,7 @@ PetscErrorCode PCTFS_ivec_sort_companion_hack(PetscInt *ar,  PetscInt **ar2, Pet
   size--;
 
   /* do until we're done ... return when stack is exhausted */
-  for (;; ) {
+  for (;;) {
 
     /* if list is large enough use quicksort partition exchange code */
     if (size > SORT_OPT) {
@@ -437,7 +435,7 @@ PetscErrorCode PCTFS_ivec_sort_companion_hack(PetscInt *ar,  PetscInt **ar2, Pet
 
       /* partition about pivot_value ...                              */
       /* note lists of length 2 are not guaranteed to be sorted */
-      for (;; ) {
+      for (;;) {
 
         /* walk up ... and down ... swap if equal to pivot! */
         do {pi++; pi2++;} while (*pi<*ar);
@@ -493,7 +491,6 @@ PetscErrorCode PCTFS_ivec_sort_companion_hack(PetscInt *ar,  PetscInt **ar2, Pet
       size = *(--top_s);
     }
   }
-  PetscFunctionReturn(0);
 }
 
 /******************************************************************************/
@@ -660,7 +657,7 @@ PetscErrorCode PCTFS_rvec_non_uniform(PetscScalar *arg1, PetscScalar *arg2,  Pet
 
   PetscFunctionBegin;
   /* LATER: if we're really motivated we can sort and then unsort */
-  for (i=0; i<n; ) {
+  for (i=0; i<n;) {
 
     /* clump 'em for now */
     j    =i+1;

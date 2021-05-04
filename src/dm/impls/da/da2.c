@@ -13,7 +13,7 @@ static PetscErrorCode DMView_DA_2d(DM da,PetscViewer viewer)
 #endif
 
   PetscFunctionBegin;
-  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)da),&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)da),&rank);CHKERRMPI(ierr);
 
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&iascii);CHKERRQ(ierr);
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERDRAW,&isdraw);CHKERRQ(ierr);
@@ -30,11 +30,11 @@ static PetscErrorCode DMView_DA_2d(DM da,PetscViewer viewer)
       PetscInt      i,nmax = 0,nmin = PETSC_MAX_INT,navg = 0,*nz,nzlocal;
       DMDALocalInfo info;
       PetscMPIInt   size;
-      ierr = MPI_Comm_size(PetscObjectComm((PetscObject)da),&size);CHKERRQ(ierr);
+      ierr = MPI_Comm_size(PetscObjectComm((PetscObject)da),&size);CHKERRMPI(ierr);
       ierr = DMDAGetLocalInfo(da,&info);CHKERRQ(ierr);
       nzlocal = info.xm*info.ym;
       ierr = PetscMalloc1(size,&nz);CHKERRQ(ierr);
-      ierr = MPI_Allgather(&nzlocal,1,MPIU_INT,nz,1,MPIU_INT,PetscObjectComm((PetscObject)da));CHKERRQ(ierr);
+      ierr = MPI_Allgather(&nzlocal,1,MPIU_INT,nz,1,MPIU_INT,PetscObjectComm((PetscObject)da));CHKERRMPI(ierr);
       for (i=0; i<(PetscInt)size; i++) {
         nmax = PetscMax(nmax,nz[i]);
         nmin = PetscMin(nmin,nz[i]);
@@ -45,7 +45,7 @@ static PetscErrorCode DMView_DA_2d(DM da,PetscViewer viewer)
       ierr = PetscViewerASCIIPrintf(viewer,"  Load Balance - Grid Points: Min %D  avg %D  max %D\n",nmin,navg,nmax);CHKERRQ(ierr);
       PetscFunctionReturn(0);
     }
-    if (format != PETSC_VIEWER_ASCII_VTK && format != PETSC_VIEWER_ASCII_VTK_CELL && format != PETSC_VIEWER_ASCII_GLVIS) {
+    if (format != PETSC_VIEWER_ASCII_VTK_DEPRECATED && format != PETSC_VIEWER_ASCII_VTK_CELL_DEPRECATED && format != PETSC_VIEWER_ASCII_GLVIS) {
       DMDALocalInfo info;
       ierr = DMDAGetLocalInfo(da,&info);CHKERRQ(ierr);
       ierr = PetscViewerASCIIPushSynchronized(viewer);CHKERRQ(ierr);
@@ -220,11 +220,8 @@ PetscErrorCode  DMSetUp_DA_2D(DM da)
   if (((PetscInt64) M)*((PetscInt64) N)*((PetscInt64) dof) > (PetscInt64) PETSC_MPI_INT_MAX) SETERRQ3(comm,PETSC_ERR_INT_OVERFLOW,"Mesh of %D by %D by %D (dof) is too large for 32 bit indices",M,N,dof);
 #endif
 
-  if (dof < 1) SETERRQ1(comm,PETSC_ERR_ARG_OUTOFRANGE,"Must have 1 or more degrees of freedom per node: %D",dof);
-  if (s < 0) SETERRQ1(comm,PETSC_ERR_ARG_OUTOFRANGE,"Stencil width cannot be negative: %D",s);
-
-  ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
 
   dd->p = 1;
   if (m != PETSC_DECIDE) {
@@ -274,13 +271,13 @@ PetscErrorCode  DMSetUp_DA_2D(DM da)
   for (i=0; i<(rank % m); i++) {
     xs += lx[i];
   }
-#if defined(PETSC_USE_DEBUG)
-  left = xs;
-  for (i=(rank % m); i<m; i++) {
-    left += lx[i];
+  if (PetscDefined(USE_DEBUG)) {
+    left = xs;
+    for (i=(rank % m); i<m; i++) {
+      left += lx[i];
+    }
+    if (left != M) SETERRQ2(PETSC_COMM_SELF,PETSC_ERR_ARG_OUTOFRANGE,"Sum of lx across processors not equal to M: %D %D",left,M);
   }
-  if (left != M) SETERRQ2(PETSC_COMM_SELF,PETSC_ERR_ARG_OUTOFRANGE,"Sum of lx across processors not equal to M: %D %D",left,M);
-#endif
 
   /*
      Determine locally owned region
@@ -298,13 +295,13 @@ PetscErrorCode  DMSetUp_DA_2D(DM da)
   for (i=0; i<(rank/m); i++) {
     ys += ly[i];
   }
-#if defined(PETSC_USE_DEBUG)
-  left = ys;
-  for (i=(rank/m); i<n; i++) {
-    left += ly[i];
+  if (PetscDefined(USE_DEBUG)) {
+    left = ys;
+    for (i=(rank/m); i<n; i++) {
+      left += ly[i];
+    }
+    if (left != N) SETERRQ2(PETSC_COMM_SELF,PETSC_ERR_ARG_OUTOFRANGE,"Sum of ly across processors not equal to N: %D %D",left,N);
   }
-  if (left != N) SETERRQ2(PETSC_COMM_SELF,PETSC_ERR_ARG_OUTOFRANGE,"Sum of ly across processors not equal to N: %D %D",left,N);
-#endif
 
   /*
    check if the scatter requires more than one process neighbor or wraps around
@@ -379,7 +376,7 @@ PetscErrorCode  DMSetUp_DA_2D(DM da)
   /* determine starting point of each processor */
   nn       = x*y;
   ierr     = PetscMalloc2(size+1,&bases,size,&ldims);CHKERRQ(ierr);
-  ierr     = MPI_Allgather(&nn,1,MPIU_INT,ldims,1,MPIU_INT,comm);CHKERRQ(ierr);
+  ierr     = MPI_Allgather(&nn,1,MPIU_INT,ldims,1,MPIU_INT,comm);CHKERRMPI(ierr);
   bases[0] = 0;
   for (i=1; i<=size; i++) {
     bases[i] = ldims[i-1];

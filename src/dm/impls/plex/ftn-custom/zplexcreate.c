@@ -4,16 +4,16 @@
 #if defined(PETSC_HAVE_FORTRAN_CAPS)
 #define dmplexcreateboxmesh_  DMPLEXCREATEBOXMESH
 #define dmplexcreatefromfile_ DMPLEXCREATEFROMFILE
-#define petscpartitionerviewfromoptions_ PETSCPARTITIONERVIEWFROMOPTIONS
+#define dmplexextrude_        DMPLEXEXTRUDE
 #elif !defined(PETSC_HAVE_FORTRAN_UNDERSCORE) && !defined(FORTRANDOUBLEUNDERSCORE)
 #define dmplexcreateboxmesh_  dmplexcreateboxmesh
 #define dmplexcreatefromfile_ dmplexcreatefromfile
-#define petscpartitionerviewfromoptions_ petscpartitionerviewfromoptions
+#define dmplexextrude_        dmplexextrude
 #endif
 
 /* Definitions of Fortran Wrapper routines */
 
-PETSC_EXTERN void PETSC_STDCALL dmplexcreateboxmesh_(MPI_Fint *comm, PetscInt *dim, PetscBool *simplex, PetscInt faces[], PetscReal lower[], PetscReal upper[], DMBoundaryType periodicity[], PetscBool *interpolate, DM *dm, int *ierr)
+PETSC_EXTERN void dmplexcreateboxmesh_(MPI_Fint *comm, PetscInt *dim, PetscBool *simplex, PetscInt faces[], PetscReal lower[], PetscReal upper[], DMBoundaryType periodicity[], PetscBool *interpolate, DM *dm, int *ierr)
 {
   CHKFORTRANNULLINTEGER(faces);
   CHKFORTRANNULLREAL(lower);
@@ -22,7 +22,7 @@ PETSC_EXTERN void PETSC_STDCALL dmplexcreateboxmesh_(MPI_Fint *comm, PetscInt *d
   *ierr = DMPlexCreateBoxMesh(MPI_Comm_f2c(*(comm)),*dim,*simplex,faces,lower,upper,periodicity,*interpolate,dm);
 }
 
-PETSC_EXTERN void PETSC_STDCALL dmplexcreatefromfile_(MPI_Fint *comm, char* name PETSC_MIXED_LEN(lenN), PetscBool *interpolate, DM *dm, int *ierr PETSC_END_LEN(lenN))
+PETSC_EXTERN void dmplexcreatefromfile_(MPI_Fint *comm, char* name, PetscBool *interpolate, DM *dm, int *ierr,PETSC_FORTRAN_CHARLEN_T lenN)
 {
   char *filename;
 
@@ -31,12 +31,8 @@ PETSC_EXTERN void PETSC_STDCALL dmplexcreatefromfile_(MPI_Fint *comm, char* name
   FREECHAR(name, filename);
 }
 
-PETSC_EXTERN void PETSC_STDCALL petscpartitionerviewfromoptions_(PetscPartitioner *part,PetscObject obj,char* type PETSC_MIXED_LEN(len),PetscErrorCode *ierr PETSC_END_LEN(len))
+PETSC_EXTERN void dmplexextrude_(DM *idm, PetscInt *layers, PetscReal *height, PetscBool *orderHeight, PetscReal extNormal[], PetscBool *interpolate, DM *dm, int *ierr)
 {
-  char *t;
-
-  FIXCHAR(type,len,t);
-  *ierr = PetscPartitionerViewFromOptions(*part,obj,t);if (*ierr) return;
-  FREECHAR(type,t);
+  CHKFORTRANNULLREAL(extNormal);
+  *ierr = DMPlexExtrude(*idm,*layers,*height,*orderHeight,extNormal,*interpolate,dm);
 }
-

@@ -206,6 +206,7 @@ PetscErrorCode SNESLineSearchCreate(MPI_Comm comm, SNESLineSearch *outlinesearch
   linesearch->postcheckctx = NULL;
   linesearch->max_its      = 1;
   linesearch->setupcalled  = PETSC_FALSE;
+  linesearch->monitor      = NULL;
   *outlinesearch           = linesearch;
   PetscFunctionReturn(0);
 }
@@ -645,7 +646,7 @@ PetscErrorCode SNESLineSearchDestroy(SNESLineSearch * linesearch)
   PetscFunctionBegin;
   if (!*linesearch) PetscFunctionReturn(0);
   PetscValidHeaderSpecific((*linesearch),SNESLINESEARCH_CLASSID,1);
-  if (--((PetscObject)(*linesearch))->refct > 0) {*linesearch = 0; PetscFunctionReturn(0);}
+  if (--((PetscObject)(*linesearch))->refct > 0) {*linesearch = NULL; PetscFunctionReturn(0);}
   ierr = PetscObjectSAWsViewOff((PetscObject)*linesearch);CHKERRQ(ierr);
   ierr = SNESLineSearchReset(*linesearch);CHKERRQ(ierr);
   if ((*linesearch)->ops->destroy) (*linesearch)->ops->destroy(*linesearch);
@@ -708,10 +709,7 @@ PetscErrorCode  SNESLineSearchGetDefaultMonitor(SNESLineSearch linesearch, Petsc
 {
   PetscFunctionBegin;
   PetscValidHeaderSpecific(linesearch,SNESLINESEARCH_CLASSID,1);
-  if (monitor) {
-    PetscValidPointer(monitor, 2);
-    *monitor = linesearch->monitor;
-  }
+  *monitor = linesearch->monitor;
   PetscFunctionReturn(0);
 }
 
@@ -905,6 +903,30 @@ PetscErrorCode SNESLineSearchView(SNESLineSearch linesearch, PetscViewer viewer)
 }
 
 /*@C
+   SNESLineSearchGetType - Gets the linesearch type
+
+   Logically Collective on SNESLineSearch
+
+   Input Parameters:
+.  linesearch - linesearch context
+
+   Output Parameters:
+-  type - The type of line search, or NULL if not set
+
+   Level: intermediate
+
+.seealso: SNESLineSearchCreate(), SNESLineSearchType, SNESLineSearchSetFromOptions(), SNESLineSearchSetType()
+@*/
+PetscErrorCode SNESLineSearchGetType(SNESLineSearch linesearch, SNESLineSearchType *type)
+{
+  PetscFunctionBegin;
+  PetscValidHeaderSpecific(linesearch,SNESLINESEARCH_CLASSID,1);
+  PetscValidCharPointer(type,2);
+  *type = ((PetscObject)linesearch)->type_name;
+  PetscFunctionReturn(0);
+}
+
+/*@C
    SNESLineSearchSetType - Sets the linesearch type
 
    Logically Collective on SNESLineSearch
@@ -926,7 +948,7 @@ PetscErrorCode SNESLineSearchView(SNESLineSearch linesearch, PetscViewer viewer)
 
    Level: intermediate
 
-.seealso: SNESLineSearchCreate(), SNESLineSearchType, SNESLineSearchSetFromOptions()
+.seealso: SNESLineSearchCreate(), SNESLineSearchType, SNESLineSearchSetFromOptions(), SNESLineSearchGetType()
 @*/
 PetscErrorCode SNESLineSearchSetType(SNESLineSearch linesearch, SNESLineSearchType type)
 {
@@ -945,14 +967,13 @@ PetscErrorCode SNESLineSearchSetType(SNESLineSearch linesearch, SNESLineSearchTy
   /* Destroy the previous private linesearch context */
   if (linesearch->ops->destroy) {
     ierr = (*(linesearch)->ops->destroy)(linesearch);CHKERRQ(ierr);
-
     linesearch->ops->destroy = NULL;
   }
   /* Reinitialize function pointers in SNESLineSearchOps structure */
-  linesearch->ops->apply          = 0;
-  linesearch->ops->view           = 0;
-  linesearch->ops->setfromoptions = 0;
-  linesearch->ops->destroy        = 0;
+  linesearch->ops->apply          = NULL;
+  linesearch->ops->view           = NULL;
+  linesearch->ops->setfromoptions = NULL;
+  linesearch->ops->destroy        = NULL;
 
   ierr = PetscObjectChangeTypeName((PetscObject)linesearch,type);CHKERRQ(ierr);
   ierr = (*r)(linesearch);CHKERRQ(ierr);
@@ -1175,7 +1196,7 @@ PetscErrorCode  SNESLineSearchSetTolerances(SNESLineSearch linesearch,PetscReal 
   }
 
   if (ltol != PETSC_DEFAULT) {
-    if (ltol < 0.0) SETERRQ1(PetscObjectComm((PetscObject)linesearch),PETSC_ERR_ARG_OUTOFRANGE,"Labmda tolerance %14.12e must be non-negative",(double)ltol);
+    if (ltol < 0.0) SETERRQ1(PetscObjectComm((PetscObject)linesearch),PETSC_ERR_ARG_OUTOFRANGE,"Lambda tolerance %14.12e must be non-negative",(double)ltol);
     linesearch->ltol = ltol;
   }
 
@@ -1210,7 +1231,7 @@ PetscErrorCode  SNESLineSearchGetDamping(SNESLineSearch linesearch,PetscReal *da
 }
 
 /*@
-   SNESLineSearchSetDamping - Sets the line search damping paramter.
+   SNESLineSearchSetDamping - Sets the line search damping parameter.
 
    Input Parameters:
 +  linesearch - linesearch context

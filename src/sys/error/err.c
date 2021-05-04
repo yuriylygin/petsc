@@ -50,7 +50,7 @@ struct _EH {
   EH             previous;
 };
 
-static EH eh = 0;
+static EH eh = NULL;
 
 /*@C
    PetscEmacsClientErrorHandler - Error handler that uses the emacsclient program to
@@ -87,8 +87,8 @@ $     SETERRQ(PETSC_COMM_SELF,number,p,mess)
    Since this is an error handler it cannot call CHKERRQ(); thus we just return if an error is detected.
 
 
-.seealso:  PetscPushErrorHandler(), PetscAttachDebuggerErrorHandler(),
-          PetscAbortErrorHandler()
+.seealso: PetscError(), PetscPushErrorHandler(), PetscPopErrorHandler(), PetscAttachDebuggerErrorHandler(),
+          PetscAbortErrorHandler(), PetscMPIAbortErrorHandler(), PetscTraceBackErrorHandler(), PetscReturnErrorHandler()
  @*/
 PetscErrorCode  PetscEmacsClientErrorHandler(MPI_Comm comm,int line,const char *fun,const char *file,PetscErrorCode n,PetscErrorType p,const char *mess,void *ctx)
 {
@@ -108,7 +108,7 @@ PetscErrorCode  PetscEmacsClientErrorHandler(MPI_Comm comm,int line,const char *
 #endif
   ierr = PetscPopErrorHandler();if (ierr) PetscFunctionReturn(ierr); /* remove this handler from the stack of handlers */
   if (!eh) {
-    ierr = PetscTraceBackErrorHandler(comm,line,fun,file,n,p,mess,0);if (ierr) PetscFunctionReturn(ierr);
+    ierr = PetscTraceBackErrorHandler(comm,line,fun,file,n,p,mess,NULL);if (ierr) PetscFunctionReturn(ierr);
   } else {
     ierr = (*eh->handler)(comm,line,fun,file,n,p,mess,eh->ctx);if (ierr) PetscFunctionReturn(ierr);
   }
@@ -160,7 +160,7 @@ PetscErrorCode  PetscPushErrorHandler(PetscErrorCode (*handler)(MPI_Comm comm,in
   PetscFunctionBegin;
   ierr = PetscNew(&neweh);CHKERRQ(ierr);
   if (eh) neweh->previous = eh;
-  else    neweh->previous = 0;
+  else    neweh->previous = NULL;
   neweh->handler = handler;
   neweh->ctx     = ctx;
   eh             = neweh;
@@ -191,8 +191,7 @@ PetscErrorCode  PetscPopErrorHandler(void)
 }
 
 /*@C
-  PetscReturnErrorHandler - Error handler that causes a return to the current
-  level.
+  PetscReturnErrorHandler - Error handler that causes a return without printing an error message.
 
    Not Collective
 
@@ -213,18 +212,13 @@ PetscErrorCode  PetscPopErrorHandler(void)
    the calling sequence
 $     SETERRQ(comm,number,mess)
 
-   Notes for experienced users:
-   This routine is good for catching errors such as zero pivots in preconditioners
-   or breakdown of iterative methods. It is not appropriate for memory violations
-   and similar errors.
+   PetscIgnoreErrorHandler() does the same thing as this function, but is deprecated, you should use this function.
 
-   Use PetscPushErrorHandler() to set the desired error handler.  The
-   currently available PETSc error handlers include PetscTraceBackErrorHandler(),
-   PetscAttachDebuggerErrorHandler(), PetscAbortErrorHandler(), and PetscAbortErrorHandler()
+   Use PetscPushErrorHandler() to set the desired error handler.
 
-.seealso:  PetscPushErrorHandler(), PetscPopErrorHandler().
+.seealso:  PetscPushErrorHandler(), PetscPopErrorHandler(), PetscError(), PetscAbortErrorHandler(), PetscMPIAbortErrorHandler(), PetscTraceBackErrorHandler(),
+           PetscAttachDebuggerErrorHandler(), PetscEmacsClientErrorHandler()
  @*/
-
 PetscErrorCode  PetscReturnErrorHandler(MPI_Comm comm,int line,const char *fun,const char *file,PetscErrorCode n,PetscErrorType p,const char *mess,void *ctx)
 {
   PetscFunctionBegin;
@@ -278,6 +272,9 @@ static const char *PetscErrorStrings[] = {
   /*93 */ "You cannot overwrite this option since that will conflict with other previously set options",
   /*94 */ "Example/application run with number of MPI ranks it does not support",
   /*95 */ "Missing or incorrect user input ",
+  /*96 */ "GPU resources unavailable ",
+  /*97 */ "GPU error ",
+  /*98 */ "General MPI error "
 };
 
 /*@C
@@ -294,14 +291,14 @@ static const char *PetscErrorStrings[] = {
 
    Level: developer
 
-.seealso:  PetscPushErrorHandler(), PetscAttachDebuggerErrorHandler(), PetscError(), SETERRQ(), CHKERRQ() 
+.seealso:  PetscPushErrorHandler(), PetscAttachDebuggerErrorHandler(), PetscError(), SETERRQ(), CHKERRQ()
           PetscAbortErrorHandler(), PetscTraceBackErrorHandler()
  @*/
 PetscErrorCode  PetscErrorMessage(int errnum,const char *text[],char **specific)
 {
   PetscFunctionBegin;
   if (text && errnum > PETSC_ERR_MIN_VALUE && errnum < PETSC_ERR_MAX_VALUE) *text = PetscErrorStrings[errnum-PETSC_ERR_MIN_VALUE-1];
-  else if (text) *text = 0;
+  else if (text) *text = NULL;
 
   if (specific) *specific = PetscErrorBaseMessage;
   PetscFunctionReturn(0);
@@ -335,10 +332,9 @@ static void PetscCxxErrorThrow() {
 #endif
 
 /*@C
-   PetscError - Routine that is called when an error has been detected,
-   usually called through the macro SETERRQ(PETSC_COMM_SELF,).
+   PetscError - Routine that is called when an error has been detected, usually called through the macro SETERRQ(PETSC_COMM_SELF,).
 
-   Not Collective
+  Collective on comm
 
    Input Parameters:
 +  comm - communicator over which error occurred.  ALL ranks of this communicator MUST call this routine
@@ -349,9 +345,20 @@ static void PetscCxxErrorThrow() {
 .  p - PETSC_ERROR_INITIAL indicates the error was initially detected, PETSC_ERROR_REPEAT indicates this is a traceback from a previously detected error
 -  mess - formatted message string - aka printf
 
+  Options Database:
++  -error_output_stdout - output the error messages to stdout instead of the default stderr
+-  -error_output_none - do not output the error messages
+
   Level: intermediate
 
    Notes:
+   PETSc error handling is done with error return codes. A non-zero return indicates an error was detected. Errors are generally not something that the code
+   can recover from. Note that numerical errors (potential divide by zero, for example) are not managed by the error return codes; they are managed via, for example,
+   KSPGetConvergedReason() that indicates if the solve was successful or not. The option -ksp_error_if_not_converged, for example, turns numerical failures into
+   hard errors managed via PetscError().
+
+   PETSc provides a rich supply of error handlers, see the list below, and users can also provide their own error handlers.
+
    Most users need not directly use this routine and the error handlers, but
    can instead use the simplified interface SETERRQ, which has the calling
    sequence
@@ -361,19 +368,21 @@ $     SETERRQ(comm,n,mess)
    This routine is used differently from Fortran
 $    PetscError(MPI_Comm comm,PetscErrorCode n,PetscErrorType p,char *message)
 
-   Experienced users can set the error handler with PetscPushErrorHandler().
+   Set the error handler with PetscPushErrorHandler().
 
    Developer Note: Since this is called after an error condition it should not be calling any error handlers (currently it ignores any error codes)
    BUT this routine does call regular PETSc functions that may call error handlers, this is problematic and could be fixed by never calling other PETSc routines
    but this annoying.
 
-.seealso: PetscTraceBackErrorHandler(), PetscPushErrorHandler(), SETERRQ(), CHKERRQ(), CHKMEMQ, SETERRQ1(), SETERRQ2(), PetscErrorMessage(), PETSCABORT()
+.seealso: PetscErrorCode, PetscPushErrorHandler(), PetscPopErrorHandler(), PetscTraceBackErrorHandler(),  PetscAbortErrorHandler(), PetscMPIAbortErrorHandler(),
+          PetscReturnErrorHandler(), PetscAttachDebuggerErrorHandler(), PetscEmacsClientErrorHandler(),
+          SETERRQ(), CHKERRQ(), CHKMEMQ, SETERRQ1(), SETERRQ2(), PetscErrorMessage(), PETSCABORT()
 @*/
 PetscErrorCode PetscError(MPI_Comm comm,int line,const char *func,const char *file,PetscErrorCode n,PetscErrorType p,const char *mess,...)
 {
   va_list        Argp;
   size_t         fullLength;
-  char           buf[2048],*lbuf = 0;
+  char           buf[2048],*lbuf = NULL;
   PetscBool      ismain;
   PetscErrorCode ierr;
 
@@ -391,7 +400,9 @@ PetscErrorCode PetscError(MPI_Comm comm,int line,const char *func,const char *fi
     if (p == PETSC_ERROR_INITIAL) PetscStrncpy(PetscErrorBaseMessage,lbuf,1023);
   }
 
-  if (!eh) ierr = PetscTraceBackErrorHandler(comm,line,func,file,n,p,lbuf,0);
+  if (p == PETSC_ERROR_INITIAL && n != PETSC_ERR_MEMC) PetscMallocValidate(__LINE__,PETSC_FUNCTION_NAME,__FILE__);
+
+  if (!eh) ierr = PetscTraceBackErrorHandler(comm,line,func,file,n,p,lbuf,NULL);
   else     ierr = (*eh->handler)(comm,line,func,file,n,p,lbuf,eh->ctx);
 
   /*
@@ -402,9 +413,10 @@ PetscErrorCode PetscError(MPI_Comm comm,int line,const char *func,const char *fi
   */
   PetscStrncmp(func,"main",4,&ismain);
   if (ismain) {
-    PetscMPIInt    errcode;
-    errcode = (PetscMPIInt)(0 + line*1000 + ierr);
-    MPI_Abort(comm,errcode);
+    PetscMPIInt errcode;
+    errcode = (PetscMPIInt)(0 + 0*line*1000 + ierr);
+    if (petscwaitonerrorflg) {PetscSleep(1000);}
+    MPI_Abort(MPI_COMM_WORLD,errcode);
   }
 
 #if defined(PETSC_CLANGUAGE_CXX)
@@ -437,7 +449,7 @@ PetscErrorCode PetscError(MPI_Comm comm,int line,const char *func,const char *fi
 PetscErrorCode  PetscIntView(PetscInt N,const PetscInt idx[],PetscViewer viewer)
 {
   PetscErrorCode ierr;
-  PetscMPIInt	 rank,size;
+  PetscMPIInt    rank,size;
   PetscInt       j,i,n = N/20,p = N % 20;
   PetscBool      iascii,isbinary;
   MPI_Comm       comm;
@@ -447,8 +459,8 @@ PetscErrorCode  PetscIntView(PetscInt N,const PetscInt idx[],PetscViewer viewer)
   PetscValidHeaderSpecific(viewer,PETSC_VIEWER_CLASSID,3);
   if (N) PetscValidIntPointer(idx,2);
   ierr = PetscObjectGetComm((PetscObject)viewer,&comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
 
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&iascii);CHKERRQ(ierr);
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERBINARY,&isbinary);CHKERRQ(ierr);
@@ -484,11 +496,11 @@ PetscErrorCode  PetscIntView(PetscInt N,const PetscInt idx[],PetscViewer viewer)
 
     if (size > 1) {
       if (rank) {
-        ierr = MPI_Gather(&NN,1,MPI_INT,0,0,MPI_INT,0,comm);CHKERRQ(ierr);
-        ierr = MPI_Gatherv((void*)idx,NN,MPIU_INT,0,0,0,MPIU_INT,0,comm);CHKERRQ(ierr);
+        ierr = MPI_Gather(&NN,1,MPI_INT,NULL,0,MPI_INT,0,comm);CHKERRMPI(ierr);
+        ierr = MPI_Gatherv((void*)idx,NN,MPIU_INT,NULL,NULL,NULL,MPIU_INT,0,comm);CHKERRMPI(ierr);
       } else {
         ierr      = PetscMalloc1(size,&sizes);CHKERRQ(ierr);
-        ierr      = MPI_Gather(&NN,1,MPI_INT,sizes,1,MPI_INT,0,comm);CHKERRQ(ierr);
+        ierr      = MPI_Gather(&NN,1,MPI_INT,sizes,1,MPI_INT,0,comm);CHKERRMPI(ierr);
         Ntotal    = sizes[0];
         ierr      = PetscMalloc1(size,&displs);CHKERRQ(ierr);
         displs[0] = 0;
@@ -497,14 +509,14 @@ PetscErrorCode  PetscIntView(PetscInt N,const PetscInt idx[],PetscViewer viewer)
           displs[i] =  displs[i-1] + sizes[i-1];
         }
         ierr = PetscMalloc1(Ntotal,&array);CHKERRQ(ierr);
-        ierr = MPI_Gatherv((void*)idx,NN,MPIU_INT,array,sizes,displs,MPIU_INT,0,comm);CHKERRQ(ierr);
-        ierr = PetscViewerBinaryWrite(viewer,array,Ntotal,PETSC_INT,PETSC_TRUE);CHKERRQ(ierr);
+        ierr = MPI_Gatherv((void*)idx,NN,MPIU_INT,array,sizes,displs,MPIU_INT,0,comm);CHKERRMPI(ierr);
+        ierr = PetscViewerBinaryWrite(viewer,array,Ntotal,PETSC_INT);CHKERRQ(ierr);
         ierr = PetscFree(sizes);CHKERRQ(ierr);
         ierr = PetscFree(displs);CHKERRQ(ierr);
         ierr = PetscFree(array);CHKERRQ(ierr);
       }
     } else {
-      ierr = PetscViewerBinaryWrite(viewer,(void*) idx,N,PETSC_INT,PETSC_FALSE);CHKERRQ(ierr);
+      ierr = PetscViewerBinaryWrite(viewer,idx,N,PETSC_INT);CHKERRQ(ierr);
     }
   } else {
     const char *tname;
@@ -534,7 +546,7 @@ PetscErrorCode  PetscIntView(PetscInt N,const PetscInt idx[],PetscViewer viewer)
 PetscErrorCode  PetscRealView(PetscInt N,const PetscReal idx[],PetscViewer viewer)
 {
   PetscErrorCode ierr;
-  PetscMPIInt	 rank,size;
+  PetscMPIInt    rank,size;
   PetscInt       j,i,n = N/5,p = N % 5;
   PetscBool      iascii,isbinary;
   MPI_Comm       comm;
@@ -544,8 +556,8 @@ PetscErrorCode  PetscRealView(PetscInt N,const PetscReal idx[],PetscViewer viewe
   PetscValidHeaderSpecific(viewer,PETSC_VIEWER_CLASSID,3);
   PetscValidScalarPointer(idx,2);
   ierr = PetscObjectGetComm((PetscObject)viewer,&comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
 
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&iascii);CHKERRQ(ierr);
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERBINARY,&isbinary);CHKERRQ(ierr);
@@ -589,11 +601,11 @@ PetscErrorCode  PetscRealView(PetscInt N,const PetscReal idx[],PetscViewer viewe
 
     if (size > 1) {
       if (rank) {
-        ierr = MPI_Gather(&NN,1,MPI_INT,0,0,MPI_INT,0,comm);CHKERRQ(ierr);
-        ierr = MPI_Gatherv((PetscReal*)idx,NN,MPIU_REAL,0,0,0,MPIU_REAL,0,comm);CHKERRQ(ierr);
+        ierr = MPI_Gather(&NN,1,MPI_INT,NULL,0,MPI_INT,0,comm);CHKERRMPI(ierr);
+        ierr = MPI_Gatherv((PetscReal*)idx,NN,MPIU_REAL,NULL,NULL,NULL,MPIU_REAL,0,comm);CHKERRMPI(ierr);
       } else {
         ierr      = PetscMalloc1(size,&sizes);CHKERRQ(ierr);
-        ierr      = MPI_Gather(&NN,1,MPI_INT,sizes,1,MPI_INT,0,comm);CHKERRQ(ierr);
+        ierr      = MPI_Gather(&NN,1,MPI_INT,sizes,1,MPI_INT,0,comm);CHKERRMPI(ierr);
         Ntotal    = sizes[0];
         ierr      = PetscMalloc1(size,&displs);CHKERRQ(ierr);
         displs[0] = 0;
@@ -602,14 +614,14 @@ PetscErrorCode  PetscRealView(PetscInt N,const PetscReal idx[],PetscViewer viewe
           displs[i] =  displs[i-1] + sizes[i-1];
         }
         ierr = PetscMalloc1(Ntotal,&array);CHKERRQ(ierr);
-        ierr = MPI_Gatherv((PetscReal*)idx,NN,MPIU_REAL,array,sizes,displs,MPIU_REAL,0,comm);CHKERRQ(ierr);
-        ierr = PetscViewerBinaryWrite(viewer,array,Ntotal,PETSC_REAL,PETSC_TRUE);CHKERRQ(ierr);
+        ierr = MPI_Gatherv((PetscReal*)idx,NN,MPIU_REAL,array,sizes,displs,MPIU_REAL,0,comm);CHKERRMPI(ierr);
+        ierr = PetscViewerBinaryWrite(viewer,array,Ntotal,PETSC_REAL);CHKERRQ(ierr);
         ierr = PetscFree(sizes);CHKERRQ(ierr);
         ierr = PetscFree(displs);CHKERRQ(ierr);
         ierr = PetscFree(array);CHKERRQ(ierr);
       }
     } else {
-      ierr = PetscViewerBinaryWrite(viewer,(void*) idx,N,PETSC_REAL,PETSC_FALSE);CHKERRQ(ierr);
+      ierr = PetscViewerBinaryWrite(viewer,(void*) idx,N,PETSC_REAL);CHKERRQ(ierr);
     }
   } else {
     const char *tname;
@@ -639,7 +651,7 @@ PetscErrorCode  PetscRealView(PetscInt N,const PetscReal idx[],PetscViewer viewe
 PetscErrorCode  PetscScalarView(PetscInt N,const PetscScalar idx[],PetscViewer viewer)
 {
   PetscErrorCode ierr;
-  PetscMPIInt	 rank,size;
+  PetscMPIInt    rank,size;
   PetscInt       j,i,n = N/3,p = N % 3;
   PetscBool      iascii,isbinary;
   MPI_Comm       comm;
@@ -649,8 +661,8 @@ PetscErrorCode  PetscScalarView(PetscInt N,const PetscScalar idx[],PetscViewer v
   PetscValidHeader(viewer,3);
   if (N) PetscValidScalarPointer(idx,2);
   ierr = PetscObjectGetComm((PetscObject)viewer,&comm);CHKERRQ(ierr);
-  ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
-  ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_size(comm,&size);CHKERRMPI(ierr);
+  ierr = MPI_Comm_rank(comm,&rank);CHKERRMPI(ierr);
 
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&iascii);CHKERRQ(ierr);
   ierr = PetscObjectTypeCompare((PetscObject)viewer,PETSCVIEWERBINARY,&isbinary);CHKERRQ(ierr);
@@ -696,11 +708,11 @@ PetscErrorCode  PetscScalarView(PetscInt N,const PetscScalar idx[],PetscViewer v
 
     if (size > 1) {
       if (rank) {
-        ierr = MPI_Gather(&NN,1,MPI_INT,0,0,MPI_INT,0,comm);CHKERRQ(ierr);
-        ierr = MPI_Gatherv((void*)idx,NN,MPIU_SCALAR,0,0,0,MPIU_SCALAR,0,comm);CHKERRQ(ierr);
+        ierr = MPI_Gather(&NN,1,MPI_INT,NULL,0,MPI_INT,0,comm);CHKERRMPI(ierr);
+        ierr = MPI_Gatherv((void*)idx,NN,MPIU_SCALAR,NULL,NULL,NULL,MPIU_SCALAR,0,comm);CHKERRMPI(ierr);
       } else {
         ierr      = PetscMalloc1(size,&sizes);CHKERRQ(ierr);
-        ierr      = MPI_Gather(&NN,1,MPI_INT,sizes,1,MPI_INT,0,comm);CHKERRQ(ierr);
+        ierr      = MPI_Gather(&NN,1,MPI_INT,sizes,1,MPI_INT,0,comm);CHKERRMPI(ierr);
         Ntotal    = sizes[0];
         ierr      = PetscMalloc1(size,&displs);CHKERRQ(ierr);
         displs[0] = 0;
@@ -709,14 +721,14 @@ PetscErrorCode  PetscScalarView(PetscInt N,const PetscScalar idx[],PetscViewer v
           displs[i] =  displs[i-1] + sizes[i-1];
         }
         ierr = PetscMalloc1(Ntotal,&array);CHKERRQ(ierr);
-        ierr = MPI_Gatherv((void*)idx,NN,MPIU_SCALAR,array,sizes,displs,MPIU_SCALAR,0,comm);CHKERRQ(ierr);
-        ierr = PetscViewerBinaryWrite(viewer,array,Ntotal,PETSC_SCALAR,PETSC_TRUE);CHKERRQ(ierr);
+        ierr = MPI_Gatherv((void*)idx,NN,MPIU_SCALAR,array,sizes,displs,MPIU_SCALAR,0,comm);CHKERRMPI(ierr);
+        ierr = PetscViewerBinaryWrite(viewer,array,Ntotal,PETSC_SCALAR);CHKERRQ(ierr);
         ierr = PetscFree(sizes);CHKERRQ(ierr);
         ierr = PetscFree(displs);CHKERRQ(ierr);
         ierr = PetscFree(array);CHKERRQ(ierr);
       }
     } else {
-      ierr = PetscViewerBinaryWrite(viewer,(void*) idx,N,PETSC_SCALAR,PETSC_FALSE);CHKERRQ(ierr);
+      ierr = PetscViewerBinaryWrite(viewer,(void*) idx,N,PETSC_SCALAR);CHKERRQ(ierr);
     }
   } else {
     const char *tname;
@@ -744,6 +756,38 @@ PETSC_EXTERN const char* PetscCUBLASGetErrorName(cublasStatus_t status)
     case CUBLAS_STATUS_LICENSE_ERROR:    return "CUBLAS_STATUS_LICENSE_ERROR";
 #endif
     default:                             return "unknown error";
+  }
+}
+PETSC_EXTERN const char* PetscCUSolverGetErrorName(cusolverStatus_t status)
+{
+  switch(status) {
+#if (CUDART_VERSION >= 8000) /* At least CUDA 8.0 of Sep. 2016 had these */
+    case CUSOLVER_STATUS_SUCCESS:          return "CUSOLVER_STATUS_SUCCESS";
+    case CUSOLVER_STATUS_NOT_INITIALIZED:  return "CUSOLVER_STATUS_NOT_INITIALIZED";
+    case CUSOLVER_STATUS_INVALID_VALUE:    return "CUSOLVER_STATUS_INVALID_VALUE";
+    case CUSOLVER_STATUS_ARCH_MISMATCH:    return "CUSOLVER_STATUS_ARCH_MISMATCH";
+    case CUSOLVER_STATUS_INTERNAL_ERROR:   return "CUSOLVER_STATUS_INTERNAL_ERROR";
+#endif
+    default:                             return "unknown error";
+  }
+}
+#endif
+
+#if defined(PETSC_HAVE_HIP)
+#include <petschipblas.h>
+PETSC_EXTERN const char* PetscHIPBLASGetErrorName(hipblasStatus_t status)
+{
+  switch(status) {
+    case HIPBLAS_STATUS_SUCCESS:          return "HIPBLAS_STATUS_SUCCESS";
+    case HIPBLAS_STATUS_NOT_INITIALIZED:  return "HIPBLAS_STATUS_NOT_INITIALIZED";
+    case HIPBLAS_STATUS_ALLOC_FAILED:     return "HIPBLAS_STATUS_ALLOC_FAILED";
+    case HIPBLAS_STATUS_INVALID_VALUE:    return "HIPBLAS_STATUS_INVALID_VALUE";
+    case HIPBLAS_STATUS_ARCH_MISMATCH:    return "HIPBLAS_STATUS_ARCH_MISMATCH";
+    case HIPBLAS_STATUS_MAPPING_ERROR:    return "HIPBLAS_STATUS_MAPPING_ERROR";
+    case HIPBLAS_STATUS_EXECUTION_FAILED: return "HIPBLAS_STATUS_EXECUTION_FAILED";
+    case HIPBLAS_STATUS_INTERNAL_ERROR:   return "HIPBLAS_STATUS_INTERNAL_ERROR";
+    case HIPBLAS_STATUS_NOT_SUPPORTED:    return "HIPBLAS_STATUS_NOT_SUPPORTED";
+    default:                              return "unknown error";
   }
 }
 #endif

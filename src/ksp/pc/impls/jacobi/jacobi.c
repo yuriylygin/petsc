@@ -50,7 +50,7 @@
 
 #include <petsc/private/pcimpl.h>   /*I "petscpc.h" I*/
 
-const char *const PCJacobiTypes[]    = {"DIAGONAL","ROWMAX","ROWSUM","PCJacobiType","PC_JACOBI_",0};
+const char *const PCJacobiTypes[]    = {"DIAGONAL","ROWMAX","ROWSUM","PCJacobiType","PC_JACOBI_",NULL};
 
 /*
    Private context (data structure) for the Jacobi preconditioner.
@@ -171,10 +171,10 @@ static PetscErrorCode PCSetUp_Jacobi(PC pc)
     }
     ierr = VecReciprocal(diag);CHKERRQ(ierr);
     ierr = VecGetLocalSize(diag,&n);CHKERRQ(ierr);
-    ierr = VecGetArray(diag,&x);CHKERRQ(ierr);
     if (jac->useabs) {
-      for (i=0; i<n; i++) x[i] = PetscAbsScalar(x[i]);
+      ierr = VecAbs(diag);CHKERRQ(ierr);
     }
+    ierr = VecGetArray(diag,&x);CHKERRQ(ierr);
     for (i=0; i<n; i++) {
       if (x[i] == 0.0) {
         x[i]     = 1.0;
@@ -222,7 +222,7 @@ static PetscErrorCode PCSetUp_Jacobi_Symmetric(PC pc)
   PC_Jacobi      *jac = (PC_Jacobi*)pc->data;
 
   PetscFunctionBegin;
-  ierr = MatCreateVecs(pc->pmat,&jac->diagsqrt,0);CHKERRQ(ierr);
+  ierr = MatCreateVecs(pc->pmat,&jac->diagsqrt,NULL);CHKERRQ(ierr);
   ierr = PetscLogObjectParent((PetscObject)pc,(PetscObject)jac->diagsqrt);CHKERRQ(ierr);
   ierr = PCSetUp_Jacobi(pc);CHKERRQ(ierr);
   PetscFunctionReturn(0);
@@ -242,7 +242,7 @@ static PetscErrorCode PCSetUp_Jacobi_NonSymmetric(PC pc)
   PC_Jacobi      *jac = (PC_Jacobi*)pc->data;
 
   PetscFunctionBegin;
-  ierr = MatCreateVecs(pc->pmat,&jac->diag,0);CHKERRQ(ierr);
+  ierr = MatCreateVecs(pc->pmat,&jac->diag,NULL);CHKERRQ(ierr);
   ierr = PetscLogObjectParent((PetscObject)pc,(PetscObject)jac->diag);CHKERRQ(ierr);
   ierr = PCSetUp_Jacobi(pc);CHKERRQ(ierr);
   PetscFunctionReturn(0);
@@ -352,6 +352,30 @@ static PetscErrorCode PCSetFromOptions_Jacobi(PetscOptionItems *PetscOptionsObje
   PetscFunctionReturn(0);
 }
 
+static PetscErrorCode PCView_Jacobi(PC pc, PetscViewer viewer)
+{
+  PC_Jacobi     *jac = (PC_Jacobi *) pc->data;
+  PetscBool      iascii;
+  PetscErrorCode ierr;
+
+  PetscFunctionBegin;
+  ierr = PetscObjectTypeCompare((PetscObject) viewer, PETSCVIEWERASCII, &iascii);CHKERRQ(ierr);
+  if (iascii) {
+    PCJacobiType      type;
+    PetscBool         useAbs;
+    PetscViewerFormat format;
+
+    ierr = PCJacobiGetType(pc, &type);CHKERRQ(ierr);
+    ierr = PCJacobiGetUseAbs(pc, &useAbs);CHKERRQ(ierr);
+    ierr = PetscViewerASCIIPrintf(viewer, "  type %s%s\n", PCJacobiTypes[type], useAbs ? ", using absolute value of entries" : "");CHKERRQ(ierr);
+    ierr = PetscViewerGetFormat(viewer, &format);CHKERRQ(ierr);
+    if (format == PETSC_VIEWER_ASCII_INFO_DETAIL) {
+      ierr = VecView(jac->diag, viewer);CHKERRQ(ierr);
+    }
+  }
+  PetscFunctionReturn(0);
+}
+
 /* -------------------------------------------------------------------------- */
 /*
    PCCreate_Jacobi - Creates a Jacobi preconditioner context, PC_Jacobi,
@@ -402,8 +426,8 @@ PETSC_EXTERN PetscErrorCode PCCreate_Jacobi(PC pc)
      Initialize the pointers to vectors to ZERO; these will be used to store
      diagonal entries of the matrix for fast preconditioner application.
   */
-  jac->diag      = 0;
-  jac->diagsqrt  = 0;
+  jac->diag      = NULL;
+  jac->diagsqrt  = NULL;
   jac->userowmax = PETSC_FALSE;
   jac->userowsum = PETSC_FALSE;
   jac->useabs    = PETSC_FALSE;
@@ -421,8 +445,8 @@ PETSC_EXTERN PetscErrorCode PCCreate_Jacobi(PC pc)
   pc->ops->reset               = PCReset_Jacobi;
   pc->ops->destroy             = PCDestroy_Jacobi;
   pc->ops->setfromoptions      = PCSetFromOptions_Jacobi;
-  pc->ops->view                = 0;
-  pc->ops->applyrichardson     = 0;
+  pc->ops->view                = PCView_Jacobi;
+  pc->ops->applyrichardson     = NULL;
   pc->ops->applysymmetricleft  = PCApplySymmetricLeftOrRight_Jacobi;
   pc->ops->applysymmetricright = PCApplySymmetricLeftOrRight_Jacobi;
 

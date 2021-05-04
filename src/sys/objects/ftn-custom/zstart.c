@@ -102,8 +102,8 @@
 #endif   /* mpi_init_ */
 #endif   /* PETSC_HAVE_MPIUNI */
 
-PETSC_EXTERN void PETSC_STDCALL mpi_init_(int*);
-PETSC_EXTERN void PETSC_STDCALL petscgetcomm_(PetscMPIInt*);
+PETSC_EXTERN void mpi_init_(int*);
+PETSC_EXTERN void petscgetcomm_(PetscMPIInt*);
 
 /*
      Different Fortran compilers handle command lines in different ways
@@ -114,10 +114,6 @@ PETSC_EXTERN void getarg_(int*,char*,int);
 #elif defined(PETSC_USE_NARGS)
 PETSC_EXTERN short __stdcall NARGS();
 PETSC_EXTERN void __stdcall GETARG(short*,char*,int,short *);
-
-#elif defined(PETSC_HAVE_FORTRAN_STDCALL)
-PETSC_EXTERN int PETSC_STDCALL IARGC();
-PETSC_EXTERN void PETSC_STDCALL GETARG(int *,char *,int);
 
 #elif defined(PETSC_HAVE_PXFGETARG_NEW)
 PETSC_EXTERN int iargc_();
@@ -134,26 +130,18 @@ PETSC_EXTERN void PXFGETARG(int*,_fcd,int*,int*);
 #endif
 #endif
 
-#if (defined(PETSC_HAVE_COMPLEX) && !defined(PETSC_HAVE_MPI_C_DOUBLE_COMPLEX)) || defined(PETSC_USE_REAL___FLOAT128) || defined(PETSC_USE_REAL___FP16)
-PETSC_EXTERN MPI_Op MPIU_SUM;
-
-PETSC_EXTERN void MPIAPI PetscSum_Local(void*,void*,PetscMPIInt*,MPI_Datatype*);
-
-#endif
 #if defined(PETSC_USE_REAL___FLOAT128) || defined(PETSC_USE_REAL___FP16)
-
 PETSC_EXTERN void MPIAPI PetscSum_Local(void*,void*,PetscMPIInt*,MPI_Datatype*);
 PETSC_EXTERN void MPIAPI PetscMax_Local(void*,void*,PetscMPIInt*,MPI_Datatype*);
 PETSC_EXTERN void MPIAPI PetscMin_Local(void*,void*,PetscMPIInt*,MPI_Datatype*);
 #endif
 
 PETSC_INTERN void MPIAPI MPIU_MaxSum_Local(void*,void*,PetscMPIInt*,MPI_Datatype*);
-PETSC_EXTERN PetscMPIInt MPIAPI Petsc_DelCounter(MPI_Comm,PetscMPIInt,void*,void*);
-PETSC_EXTERN PetscMPIInt MPIAPI Petsc_DelComm_Inner(MPI_Comm,PetscMPIInt,void*,void*);
-PETSC_EXTERN PetscMPIInt MPIAPI Petsc_DelComm_Outer(MPI_Comm,PetscMPIInt,void*,void*);
+PETSC_EXTERN PetscMPIInt MPIAPI Petsc_Counter_Attr_Delete_Fn(MPI_Comm,PetscMPIInt,void*,void*);
+PETSC_EXTERN PetscMPIInt MPIAPI Petsc_InnerComm_Attr_Delete_Fn(MPI_Comm,PetscMPIInt,void*,void*);
+PETSC_EXTERN PetscMPIInt MPIAPI Petsc_OuterComm_Attr_Delete_Fn(MPI_Comm,PetscMPIInt,void*,void*);
 
-PETSC_INTERN PetscErrorCode PetscOptionsCheckInitial_Private(void);
-PETSC_INTERN PetscErrorCode PetscOptionsCheckInitial_Components(void);
+PETSC_INTERN PetscErrorCode PetscOptionsCheckInitial_Private(const char[]);
 PETSC_INTERN PetscErrorCode PetscInitialize_DynamicLibraries(void);
 #if defined(PETSC_USE_LOG)
 PETSC_INTERN PetscErrorCode PetscLogInitialize(void);
@@ -180,7 +168,7 @@ PetscErrorCode PETScParseFortranArgs_Private(int *argc,char ***argv)
   PetscMPIInt    rank;
   char           *p;
 
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);CHKERRQ(ierr);
+  ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);CHKERRMPI(ierr);
   if (!rank) {
 #if defined(PETSC_HAVE_IARG_COUNT_PROGNAME)
     *argc = iargc_();
@@ -189,7 +177,7 @@ PetscErrorCode PETScParseFortranArgs_Private(int *argc,char ***argv)
     *argc = 1 + iargc_();
 #endif
   }
-  ierr = MPI_Bcast(argc,1,MPI_INT,0,PETSC_COMM_WORLD);CHKERRQ(ierr);
+  ierr = MPI_Bcast(argc,1,MPI_INT,0,PETSC_COMM_WORLD);CHKERRMPI(ierr);
 
   /* PetscTrMalloc() not yet set, so don't use PetscMalloc() */
   ierr = PetscMallocAlign((*argc+1)*(warg*sizeof(char)+sizeof(char*)),PETSC_FALSE,0,0,0,(void**)argv);CHKERRQ(ierr);
@@ -226,7 +214,7 @@ PetscErrorCode PETScParseFortranArgs_Private(int *argc,char ***argv)
       }
     }
   }
-  ierr = MPI_Bcast((*argv)[0],*argc*warg,MPI_CHAR,0,PETSC_COMM_WORLD);CHKERRQ(ierr);
+  ierr = MPI_Bcast((*argv)[0],*argc*warg,MPI_CHAR,0,PETSC_COMM_WORLD);CHKERRMPI(ierr);
   if (rank) {
     for (i=0; i<*argc; i++) (*argv)[i+1] = (*argv)[i] + warg;
   }
@@ -248,7 +236,7 @@ PETSC_INTERN PetscFPT PetscFPTData;
 PETSC_INTERN PetscErrorCode  PetscInitializeSAWs(const char[]);
 #endif
 
-PETSC_EXTERN PetscMPIInt MPIAPI Petsc_DelComm_Shm(MPI_Comm,PetscMPIInt,void *,void *);
+PETSC_EXTERN PetscMPIInt MPIAPI Petsc_ShmComm_Attr_Delete_Fn(MPI_Comm,PetscMPIInt,void *,void *);
 PETSC_INTERN PetscErrorCode PetscPreMPIInit_Private();
 
 /*
@@ -316,7 +304,7 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
 
     if (f_petsc_comm_world) {(*PetscErrorPrintf)("You cannot set PETSC_COMM_WORLD if you have not initialized MPI first\n");return;}
 
-    *ierr = PetscPreMPIInit_Private(); if(*ierr) return;
+    *ierr = PetscPreMPIInit_Private(); if (*ierr) return;
     mpi_init_(&mierr);
     if (mierr) {
       *ierr = mierr;
@@ -364,27 +352,13 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
      are not called; at least on IRIX.
   */
   {
-#if defined(PETSC_CLANGUAGE_CXX) && !defined(PETSC_USE_REAL___FLOAT128)
+#if defined(PETSC_CLANGUAGE_CXX)
     PetscComplex ic(0.0,1.0);
     PETSC_i = ic;
 #else
     PETSC_i = _Complex_I;
 #endif
   }
-
-#if !defined(PETSC_HAVE_MPI_C_DOUBLE_COMPLEX)
-  *ierr = MPI_Type_contiguous(2,MPI_DOUBLE,&MPIU_C_DOUBLE_COMPLEX);
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI types\n");return;}
-  *ierr = MPI_Type_commit(&MPIU_C_DOUBLE_COMPLEX);
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI types\n");return;}
-  *ierr = MPI_Type_contiguous(2,MPI_FLOAT,&MPIU_C_COMPLEX);
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI types\n");return;}
-  *ierr = MPI_Type_commit(&MPIU_C_COMPLEX);
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI types\n");return;}
-  *ierr = MPI_Op_create(PetscSum_Local,1,&MPIU_SUM);
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI ops\n");return;}
-#endif
-
 #endif
 
 #if defined(PETSC_USE_REAL___FLOAT128)
@@ -434,13 +408,13 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
   *ierr = MPI_Type_commit(&MPIU_2INT);
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI types\n");return;}
 #endif
-  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_DelCounter,&Petsc_Counter_keyval,(void*)0);
+  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_Counter_Attr_Delete_Fn,&Petsc_Counter_keyval,(void*)0);
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI keyvals\n");return;}
-  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_DelComm_Outer,&Petsc_InnerComm_keyval,(void*)0);
+  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_InnerComm_Attr_Delete_Fn,&Petsc_InnerComm_keyval,(void*)0);
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI keyvals\n");return;}
-  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_DelComm_Inner,&Petsc_OuterComm_keyval,(void*)0);
+  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_OuterComm_Attr_Delete_Fn,&Petsc_OuterComm_keyval,(void*)0);
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI keyvals\n");return;}
-  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_DelComm_Shm,&Petsc_ShmComm_keyval,(void*)0);
+  *ierr = MPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN,Petsc_ShmComm_Attr_Delete_Fn,&Petsc_ShmComm_keyval,(void*)0);
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Creating MPI keyvals\n");return;}
 
   /*
@@ -450,7 +424,7 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
      below.
   */
   PetscInitializeFortran();
-  if(readarguments == PETSC_TRUE) {
+  if (readarguments == PETSC_TRUE) {
     PETScParseFortranArgs_Private(&PetscGlobalArgc,&PetscGlobalArgs);
     FIXCHAR(filename,len,t1);
     *ierr = PetscOptionsInsert(NULL,&PetscGlobalArgc,&PetscGlobalArgs,t1);
@@ -458,7 +432,7 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
     FREECHAR(filename,t1);
     if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Freeing string in creating options database\n");return;}
   }
-  *ierr = PetscOptionsCheckInitial_Private();
+  *ierr = PetscOptionsCheckInitial_Private(NULL);
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Checking initial options\n");return;}
   /* call a second time to check options database */
   *ierr = PetscErrorPrintfInitialize();
@@ -471,7 +445,7 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
 #endif
 #if defined(PETSC_USE_LOG)
   *ierr = PetscLogInitialize();
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize: intializing logging\n");return;}
+  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize: initializing logging\n");return;}
 #endif
   *ierr = PetscInitialize_DynamicLibraries();
   if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Initializing dynamic libraries\n");return;}
@@ -487,8 +461,6 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
   if (*ierr) { (*PetscErrorPrintf)("PetscInitialize:Getting hostname\n");return;}
   *ierr = PetscInfo1(0,"Running on machine: %s\n",hostname);
   if (*ierr) { (*PetscErrorPrintf)("PetscInitialize:Calling PetscInfo()\n");return;}
-  *ierr = PetscOptionsCheckInitial_Components();
-  if (*ierr) {(*PetscErrorPrintf)("PetscInitialize:Checking initial options\n");return;}
 
 #if defined(PETSC_USE_DEBUG) && !defined(PETSC_HAVE_THREADSAFETY)
   *ierr = PetscStackCreate();
@@ -511,18 +483,18 @@ static void petscinitialize_internal(char* filename, PetscInt len, PetscBool rea
 #endif
 }
 
-PETSC_EXTERN void PETSC_STDCALL petscinitialize_(char* filename PETSC_MIXED_LEN(len),PetscErrorCode *ierr PETSC_END_LEN(len))
+PETSC_EXTERN void petscinitialize_(char* filename,PetscErrorCode *ierr,PETSC_FORTRAN_CHARLEN_T len)
 {
   petscinitialize_internal(filename, len, PETSC_TRUE, ierr);
 }
 
-PETSC_EXTERN void PETSC_STDCALL petscinitializenoarguments_(PetscErrorCode *ierr)
+PETSC_EXTERN void petscinitializenoarguments_(PetscErrorCode *ierr)
 {
   petscinitialize_internal(NULL, (PetscInt) 0, PETSC_FALSE, ierr);
 }
 
 
-PETSC_EXTERN void PETSC_STDCALL petscfinalize_(PetscErrorCode *ierr)
+PETSC_EXTERN void petscfinalize_(PetscErrorCode *ierr)
 {
 #if defined(PETSC_HAVE_SUNMATHPRO)
   extern void standard_arithmetic();
@@ -534,7 +506,7 @@ PETSC_EXTERN void PETSC_STDCALL petscfinalize_(PetscErrorCode *ierr)
   *ierr = PetscFinalize();
 }
 
-PETSC_EXTERN void PETSC_STDCALL petscend_(PetscErrorCode *ierr)
+PETSC_EXTERN void petscend_(PetscErrorCode *ierr)
 {
 #if defined(PETSC_HAVE_SUNMATHPRO)
   extern void standard_arithmetic();

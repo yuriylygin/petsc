@@ -23,7 +23,7 @@
                                                                                                      \
                                                                                                      \
   MatScalar     *idiag;            /* inverse of block diagonal  */                                \
-  PetscBool     idiagvalid         /* if above has correct/current values */ 
+  PetscBool     idiagvalid         /* if above has correct/current values */
 
 typedef struct {
   SEQAIJHEADER(MatScalar);
@@ -217,6 +217,12 @@ PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_7(Mat,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_9_AVX2(Mat,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_11(Mat,Vec,Vec);
 
+PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_12_ver1(Mat,Vec,Vec);
+PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_12_ver2(Mat,Vec,Vec);
+PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_12_AVX2(Mat,Vec,Vec);
+PETSC_INTERN PetscErrorCode MatMultAdd_SeqBAIJ_12_ver1(Mat,Vec,Vec,Vec);
+PETSC_INTERN PetscErrorCode MatMultAdd_SeqBAIJ_12_ver2(Mat,Vec,Vec,Vec);
+
 PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_15_ver1(Mat,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_15_ver2(Mat,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMult_SeqBAIJ_15_ver3(Mat,Vec,Vec);
@@ -234,7 +240,6 @@ PETSC_INTERN PetscErrorCode MatMultAdd_SeqBAIJ_7(Mat,Vec,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMultAdd_SeqBAIJ_9_AVX2(Mat,Vec,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMultAdd_SeqBAIJ_11(Mat,Vec,Vec,Vec);
 PETSC_INTERN PetscErrorCode MatMultAdd_SeqBAIJ_N(Mat,Vec,Vec,Vec);
-PETSC_INTERN PetscErrorCode MatLoad_SeqBAIJ(Mat,PetscViewer);
 PETSC_INTERN PetscErrorCode MatSeqBAIJSetNumericFactorization_inplace(Mat,PetscBool);
 PETSC_INTERN PetscErrorCode MatSeqBAIJSetNumericFactorization(Mat,PetscBool);
 
@@ -243,6 +248,11 @@ PETSC_INTERN PetscErrorCode MatAXPYGetPreallocation_SeqBAIJ(Mat,Mat,PetscInt*);
 
 PETSC_INTERN PetscErrorCode MatCreateMPIMatConcatenateSeqMat_SeqBAIJ(MPI_Comm,Mat,PetscInt,MatReuse,Mat*);
 PETSC_INTERN PetscErrorCode MatCreateMPIMatConcatenateSeqMat_MPIBAIJ(MPI_Comm,Mat,PetscInt,MatReuse,Mat*);
+
+PETSC_INTERN PetscErrorCode MatView_SeqBAIJ(Mat,PetscViewer);
+PETSC_INTERN PetscErrorCode MatLoad_SeqBAIJ(Mat,PetscViewer);
+PETSC_INTERN PetscErrorCode MatView_SeqBAIJ_Binary(Mat,PetscViewer);
+PETSC_INTERN PetscErrorCode MatLoad_SeqBAIJ_Binary(Mat,PetscViewer);
 
 /* used by mpibaij.c */
 PETSC_INTERN PetscErrorCode MatSetUpMultiply_MPIBAIJ(Mat);
@@ -706,7 +716,7 @@ PETSC_STATIC_INLINE PetscErrorCode PetscKernel_A_gets_A_minus_B_times_C_7(PetscS
   return 0;
 }
 
-#if defined(PETSC_HAVE_IMMINTRIN_H) && defined(__AVX2__) && defined(__FMA__) && defined(PETSC_USE_REAL_DOUBLE) && !defined(PETSC_USE_COMPLEX) && !defined(PETSC_USE_64BIT_INDICES)
+#if defined(PETSC_HAVE_IMMINTRIN_H) && defined(__AVX2__) && defined(__FMA__) && defined(PETSC_USE_REAL_DOUBLE) && !defined(PETSC_USE_COMPLEX) && !defined(PETSC_USE_64BIT_INDICES) && !defined(PETSC_SKIP_IMMINTRIN_H_CUDAWORKAROUND)
 #include <immintrin.h>
 PETSC_STATIC_INLINE PetscErrorCode PetscKernel_A_gets_A_times_B_9(PetscScalar *A,const PetscScalar *B,PetscScalar *W)
 {
@@ -734,9 +744,9 @@ PETSC_STATIC_INLINE PetscErrorCode PetscKernel_A_gets_A_times_B_9(PetscScalar *A
 
     A6 = _mm256_loadu_pd  (W+18); A7 = _mm256_loadu_pd  (W+22); A8 = _mm256_loadu_pd  (W+26);
     B0 = _mm256_broadcast_sd(B+ 2); B1 = _mm256_broadcast_sd(B+11); B2 = _mm256_broadcast_sd(B+20);
-    S0 = _mm256_fmadd_pd(A6,B0,S0); S1 = _mm256_fmadd_pd(A7,B0,S1); S2 = _mm256_fmadd_pd(A2,B0,S2);
-    S3 = _mm256_fmadd_pd(A6,B1,S3); S4 = _mm256_fmadd_pd(A7,B1,S4); S5 = _mm256_fmadd_pd(A2,B1,S5);
-    S6 = _mm256_fmadd_pd(A6,B2,S6); S7 = _mm256_fmadd_pd(A7,B2,S7); S8 = _mm256_fmadd_pd(A5,B2,S8);
+    S0 = _mm256_fmadd_pd(A6,B0,S0); S1 = _mm256_fmadd_pd(A7,B0,S1); S2 = _mm256_fmadd_pd(A8,B0,S2);
+    S3 = _mm256_fmadd_pd(A6,B1,S3); S4 = _mm256_fmadd_pd(A7,B1,S4); S5 = _mm256_fmadd_pd(A8,B1,S5);
+    S6 = _mm256_fmadd_pd(A6,B2,S6); S7 = _mm256_fmadd_pd(A7,B2,S7); S8 = _mm256_fmadd_pd(A8,B2,S8);
 
     A0 = _mm256_loadu_pd  (W+27); A1 = _mm256_loadu_pd  (W+31); A2 = _mm256_loadu_pd  (W+35);
     B6 = _mm256_broadcast_sd(B+ 3); B7 = _mm256_broadcast_sd(B+12); B8 = _mm256_broadcast_sd(B+21);
@@ -881,7 +891,7 @@ PETSC_STATIC_INLINE PetscErrorCode PetscKernel_A_gets_A_times_B_9(PetscScalar *A
 }
 #endif
 
-#if defined(PETSC_HAVE_IMMINTRIN_H) && defined(__AVX2__) && defined(__FMA__) && defined(PETSC_USE_REAL_DOUBLE) && !defined(PETSC_USE_COMPLEX) && !defined(PETSC_USE_64BIT_INDICES)
+#if defined(PETSC_HAVE_IMMINTRIN_H) && defined(__AVX2__) && defined(__FMA__) && defined(PETSC_USE_REAL_DOUBLE) && !defined(PETSC_USE_COMPLEX) && !defined(PETSC_USE_64BIT_INDICES) && !defined(PETSC_SKIP_IMMINTRIN_H_CUDAWORKAROUND)
 PETSC_STATIC_INLINE PetscErrorCode PetscKernel_A_gets_A_minus_B_times_C_9(PetscScalar *A,const PetscScalar *B,const PetscScalar *C)
 {
   PetscInt i;
